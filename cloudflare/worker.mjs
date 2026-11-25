@@ -98,7 +98,7 @@ export class CrmStore {
     const secure = url.protocol === 'https:' ? '; Secure' : '';
     const db = this.db, core = this.core;
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-    if (p === '/health') return send(200, { ok: true, mode: 'server', app: 'rarevo-crm', host: 'cloudflare', version: '2026-11-25b' });
+    if (p === '/health') return send(200, { ok: true, mode: 'server', app: 'rarevo-crm', host: 'cloudflare', version: '2026-11-25c' });
     if (p === '/__cron') return this.autosync();
     const body = ['POST', 'PUT', 'PATCH'].includes(method) ? await readBody(req) : {};
 
