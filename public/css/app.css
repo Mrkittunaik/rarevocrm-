@@ -455,3 +455,20 @@ body.rowsizing,body.rowsizing *{cursor:row-resize!important;user-select:none}
 .stat span{font-size:12px;color:#5f6368}
 .stat.warn b{color:#c5221f}
 .dupx{color:#1a73e8;font-size:11px;margin-left:4px}
+.chip2.yn-y{background:#e6f4ea;color:#137333}.chip2.yn-n{background:#fce8e6;color:#c5221f}
+.chip2.op0{background:#e8f0fe;color:#1a56b8}.chip2.op1{background:#e6f4ea;color:#137333}.chip2.op2{background:#fef7e0;color:#9a6700}.chip2.op3{background:#fce8e6;color:#c5221f}.chip2.op4{background:#f3e8fd;color:#7b1fa2}.chip2.op5{background:#e0f7fa;color:#00838f}.chip2.op6{background:#fff0e6;color:#c2410c}.chip2.op7{background:#f1f3f4;color:#3c4043}
+.pop{max-height:calc(100vh - 24px);overflow:auto}
+table.gs tr:hover td.rn span.rnum2,table.gs tr.chk td.rn span.rnum2{display:inline}
+table.gs tr:hover td.rn span.rzr,table.gs tr.chk td.rn span.rzr{display:block}
+table.gs td.rn input.cb{margin:0 2px 0 0;width:13px;height:13px}
+.bulk{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:60;max-width:calc(100vw - 24px);box-shadow:0 6px 24px rgba(0,0,0,.25);margin:0}
+.bulk .sel,.bulk .inp{height:30px}
+.bkfu{display:inline-flex;gap:4px;align-items:center;padding:0 6px;border-left:1px solid #ffffff33;border-right:1px solid #ffffff33}
+.optlist{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 6px;min-height:22px}
+.optlist .chip2 .x{border:0;background:none;color:inherit;cursor:pointer;padding:0 0 0 2px;font-size:13px;line-height:1}
+.gs td.t-multi{cursor:pointer}.gs td.t-multi .chip2{margin:1px 2px 1px 0}
+.chip2.madd{background:none;color:#9aa0a6;opacity:0}.gs td.t-multi:hover .madd{opacity:1}
+.mplist{max-height:240px;overflow:auto}.mplist .mi{display:flex;gap:6px;align-items:center}
+.chip2.cvph{background:none;color:#9aa0a6;border:1px dashed #dadce0}.gs td.cv{cursor:pointer}
+.pwwrap{position:relative;display:block}.pwwrap .inp{padding-right:38px;width:100%}
+.pweye{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:none;cursor:pointer;color:#5f6368;padding:4px}
