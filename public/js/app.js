@@ -289,7 +289,7 @@ function vSheets(b, mode) {
   }
   return `<div class="xl ${UI.fs ? 'fs' : ''}">${UI.fs ? '' : cats2}${body}${tabs}</div>`;
 }
-function rowsInfo(sc) { const n = gfilter(sc).length, t = scopeRows(sc).length; return `${n < t ? '⛃ ' : ''}${n} of ${t} rows displayed`; }
+function rowsInfo(sc) { const k = sk(sc), g = gs(k), n = gfilter(sc).length, t = scopeRows(sc).length, sh = Math.min(n, g.limit); return `${n < t ? '⛃ ' : ''}${sh < n ? `${sh} of ` : ''}${n}${n < t ? ' of ' + t : ''} rows${sh < n ? ` · <button class="lnk" data-act="showall" data-g="${esc(k)}">Show all</button>` : ''}`; }
 function vMasterAll() {
   const sc = { bid: '', sid: 'master', cat: '' };
   return `<div class="ph"><div class="t"><h1 class="row">${ic('sheet')} Master sheet</h1><p>Every record from every business and sheet. Filter, edit, assign and export from one place.</p></div></div>${grid(sc)}`;
@@ -385,7 +385,7 @@ function grid(sc) {
      return `<th class="hn" ${ren ? `data-ren="${esc(c.k)}" data-sid="${esc(sc.sid)}" title="Double-click to rename"` : ''}><span class="hl">${esc(c.l)}</span>${g.sort === c.k ? `<span class="ar">${g.dir > 0 ? '↑' : '↓'}</span>` : ''}<button class="hm" data-act="colmenu" data-g="${esc(k)}" data-v="${esc(c.k)}" aria-label="Column menu">▾</button></th>`;
    }).join('')}${single && m ? `<th class="addc"><button class="hm" data-act="quickcol" data-id="${sc.sid}" title="Add column" aria-label="Add column">+</button></th>` : ''}</tr></thead>
    <tbody id="tb-${esc(k)}">${gbody(sc, rows, cols)}</tbody></table></div>
-  ${rows.length > g.limit ? `<div class="sfoot"><button class="btn xs" data-act="more" data-g="${esc(k)}">Show ${Math.min(500, rows.length - g.limit)} more rows</button></div>` : ''}
+
   ${UI.sel.size ? bulkBar(sc) : ''}`;
 }
 function gbody(sc, rows, cols) {
@@ -455,7 +455,7 @@ function bulkBar(sc) {
 }
 function refreshBody(k) {
   const sc = UI.scopes[k]; if (!sc) return; const rows = gfilter(sc), tb = document.getElementById('tb-' + k), cn = document.getElementById('cnt-' + k);
-  if (tb) tb.innerHTML = gbody(sc, rows, gcols(sc)); if (cn) cn.textContent = rowsInfo(sc); UI.cur = null; UI.anchor = null; setFx(null);
+  if (tb) tb.innerHTML = gbody(sc, rows, gcols(sc)); if (cn) cn.innerHTML = rowsInfo(sc); UI.cur = null; UI.anchor = null; setFx(null);
 }
 /* ---------- spreadsheet interaction: select, edit, keyboard, resize ---------- */
 function setFx(td) {
@@ -658,7 +658,7 @@ function redrawRow(id) {
   const wasCur = UI.cur && UI.cur.rid === id ? UI.cur.k : null;
   tr.outerHTML = rowHtml(r, i, cols, extra);
   if (wasCur) { const td = document.querySelector(`.gs tr[data-rid="${CSS.escape(id)}"] td[data-k="${CSS.escape(wasCur)}"]`); if (td) selCell(td, true); }
-  const k = UI.curScope, cn = k && document.getElementById('cnt-' + k); if (cn && UI.scopes[k]) cn.textContent = rowsInfo(UI.scopes[k]);
+  const k = UI.curScope, cn = k && document.getElementById('cnt-' + k); if (cn && UI.scopes[k]) cn.innerHTML = rowsInfo(UI.scopes[k]);
 }
 function popMenu(anchor, html) {
   closePop(); const d = document.createElement('div'); d.className = 'pop'; d.innerHTML = html; document.body.append(d);
@@ -1529,6 +1529,7 @@ const A = {
   waselall: el => { const sc = UI.scopes[el.dataset.g]; gfilter(sc).forEach(r => UI.sel.add(r.id)); softRender(); },
   mhide: el => { closePop(); const g = gs(el.dataset.g); g.hc = [...new Set([...(g.hc || []), el.dataset.v])]; UI.rng = null; softRender(); toast('Column hidden', 'Right-click any column letter → Show hidden columns'); },
   mshow: el => { closePop(); gs(el.dataset.g).hc = []; softRender(); },
+  showall: el => { gs(el.dataset.g).limit = 1e9; softRender(); },
   webon: el => run(async () => { putBiz(await api('PUT', `/businesses/${el.dataset.id}/web`, { enabled: el.checked })); render(); }, 'Saved'),
   newkey: el => confirmBox('Create a new website key?', 'The old key stops working. Update the code on the website / the WordPress plugin with the new key.', 'donewkey', { id: el.dataset.id }),
   donewkey: el => run(async () => { putBiz(await api('PUT', `/businesses/${el.dataset.id}/web`, { newKey: true })); closeModal(); render(); }, 'New key created'),
@@ -1757,6 +1758,7 @@ document.addEventListener('paste', e => {
   e.preventDefault(); pasteText(txt);
 });
 let DR = null;
+document.addEventListener('scroll', e => { const w = e.target; if (!w.classList || !w.classList.contains('sheetwrap') || UI.moreBusy) return; if (w.scrollTop + w.clientHeight < w.scrollHeight - 200) return; const k = UI.curScope, sc = k && UI.scopes[k]; if (!sc) return; const g = gs(k); if (gfilter(sc).length <= g.limit) return; UI.moreBusy = 1; g.limit += 300; softRender(); setTimeout(() => { UI.moreBusy = 0; }, 150); }, true);
 document.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   const t = e.target;
