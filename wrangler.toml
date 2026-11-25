@@ -1,0 +1,29 @@
+# Cloudflare Workers config for RAREVO CRM (works on the free plan)
+name = "rarevo-crm"
+main = "cloudflare/worker.mjs"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Front end (HTML/CSS/JS, embed.js, WordPress plugin zip)
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# The CRM database: one SQLite-backed Durable Object (free plan supported)
+[[durable_objects.bindings]]
+name = "CRM"
+class_name = "CrmStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CrmStore"]
+
+# Auto-sync WhatsApp contacts + Meta spend every 30 minutes
+[triggers]
+crons = ["*/30 * * * *"]
+
+[vars]
+ADMIN_USERNAME = "admin"
+ADMIN_NAME = "Admin"
+ADMIN_EMAIL = "admin@rarevo.local"
+# Set the admin password as a secret (not here):  Cloudflare dashboard -> your worker -> Settings -> Variables and Secrets -> ADMIN_PASSWORD
