@@ -38,7 +38,13 @@ async function readBody(req) {
   if (t.includes('=')) { const o = {}; for (const [k, v] of new URLSearchParams(t)) o[k] = k in o ? [].concat(o[k], v) : v; return o; }
   throw new Error('Invalid request body');
 }
-const pubUser = u => ({ id: u.id, name: u.name, username: u.username || '', email: u.email || '', role: u.role, businessId: u.businessId || '', createdAt: u.createdAt });
+
+/* ---------- login protection: 5 wrong tries = 15 min lock ---------- */
+const FAILS = new Map();
+function lockedFor(key) { const f = FAILS.get(key); return f && f.until > Date.now() ? Math.ceil((f.until - Date.now()) / 60000) : 0; }
+function failed(key) { const f = FAILS.get(key) || { n: 0, until: 0 }; f.n++; if (f.n >= 5) { f.until = Date.now() + 15 * 60000; f.n = 0; } FAILS.set(key, f); if (FAILS.size > 5000) FAILS.clear(); }
+
+const pubUser = u => ({ id: u.id, name: u.name, username: u.username || '', email: u.email || '', role: u.role, businessId: u.businessId || '', createdAt: u.createdAt, mustChange: !!u.mustChange, disabled: !!u.disabled });
 const CHUNK = 400000; // characters per stored piece (stays under the 2 MB value limit)
 
 /* ---------- the database lives in this Durable Object ---------- */
@@ -75,7 +81,7 @@ export class CrmStore {
   userOf(req) {
     const s = this.db.sessions[cookies(req).sid];
     if (!s || s.exp < Date.now()) return null;
-    return this.db.users.find(u => u.id === s.uid) || null;
+    const u = this.db.users.find(u => u.id === s.uid); return u && !u.disabled ? u : null;
   }
 
   async fetch(req) {
@@ -92,7 +98,7 @@ export class CrmStore {
     const secure = url.protocol === 'https:' ? '; Secure' : '';
     const db = this.db, core = this.core;
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-    if (p === '/health') return send(200, { ok: true, mode: 'server', app: 'rarevo-crm', host: 'cloudflare' });
+    if (p === '/health') return send(200, { ok: true, mode: 'server', app: 'rarevo-crm', host: 'cloudflare', version: '2026-11-25b' });
     if (p === '/__cron') return this.autosync();
     const body = ['POST', 'PUT', 'PATCH'].includes(method) ? await readBody(req) : {};
 
@@ -120,8 +126,12 @@ export class CrmStore {
     if (p === '/login' && method === 'POST') {
       const login = String(body.login || body.email || '').trim().toLowerCase();
       const u = db.users.find(x => (x.username && x.username === login) || (x.email && x.email.toLowerCase() === login));
+    const lk = login + '|' + String((req.headers.get('CF-Connecting-IP') || '')).split(',')[0].trim(), lm = lockedFor(lk) || lockedFor(login);
+    if (lm) return send(429, { error: `Too many wrong tries. Try again in ${lm} min.` });
       if (u && body.gate) { const g = db.businesses.find(b => b.slug === body.gate); if (g && u.role !== 'super' && u.businessId !== g.id) return send(401, { error: 'This login does not belong to ' + g.name }); }
-      if (!u || !(await check(body.password || '', u.password))) return send(401, { error: 'Wrong login or password' });
+      if (!u || !(await check(body.password || '', u.password))) { failed(lk); failed(login + '|*'); if ((FAILS.get(login + '|*') || {}).until > Date.now()) FAILS.set(login, FAILS.get(login + '|*')); return send(401, { error: 'Wrong login or password' }); }
+      if (u.disabled) return send(403, { error: 'This login is blocked. Contact RAREVO MEDIA.' });
+      FAILS.delete(lk);
       const sid = rand(24);
       db.sessions[sid] = { uid: u.id, exp: Date.now() + 30 * 864e5 }; u.lastLogin = Date.now();
       for (const k in db.sessions) if (db.sessions[k].exp < Date.now()) delete db.sessions[k];
@@ -136,7 +146,7 @@ export class CrmStore {
     if (p === '/me/password' && method === 'PUT') {
       if (!(await check(body.current || '', me.password))) return send(400, { error: 'Current password is wrong' });
       if (String(body.password || '').length < 6) return send(400, { error: 'Use at least 6 characters' });
-      me.password = await hash(body.password); this.dirty = true; return send(200, { ok: true });
+      me.password = await hash(body.password); me.mustChange = false; this.dirty = true; return send(200, { ok: true });
     }
     if (p === '/impersonate' && method === 'POST') {
       if (me.role !== 'super') return send(403, { error: 'Only the system admin can do this' });
