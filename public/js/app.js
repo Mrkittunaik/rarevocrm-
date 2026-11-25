@@ -55,7 +55,7 @@ async function boot() {
   await refresh();
   setInterval(tick, 30000); setTimeout(tick, 1500);
 }
-async function refresh() { try { S = await api('GET', '/bootstrap'); render(); } catch (e) { if (MODE === 'server' && !S) renderLogin(); else toast(e.message, '', 1); } }
+async function refresh() { try { S = await api('GET', '/bootstrap'); render(); mustChangeCheck(); } catch (e) { if (MODE === 'server' && !S) renderLogin(); else toast(e.message, '', 1); } }
 async function run(fn, okMsg) { try { const r = await fn(); if (okMsg) toast(okMsg); return r; } catch (e) { toast(e.message, '', 1); render(); return null; } }
 
 const B = id => S.businesses.find(b => b.id === id), SH = id => S.sheets.find(s => s.id === id), U = id => S.users.find(u => u.id === id);
@@ -96,7 +96,7 @@ function modal(title, body, foot, opt) {
   $('#modal').hidden = false;
   setTimeout(() => { const f = $('#box .bd input:not([type=checkbox]):not([readonly]),#box .bd select,#box .bd textarea'); if (f && !opt.nofocus) f.focus(); }, 30);
 }
-const closeModal = () => { $('#modal').hidden = true; $('#box').innerHTML = ''; UI.imp = null; };
+const closeModal = () => { if ($('#modal').dataset.lock) return; $('#modal').hidden = true; $('#box').innerHTML = ''; UI.imp = null; };
 const v = id => { const e = document.getElementById(id); return e ? (e.type === 'checkbox' ? e.checked : e.value) : ''; };
 function confirmBox(title, msg, act, data) { modal(title, `<p style="margin:0">${esc(msg)}</p>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="${act}" ${Object.entries(data || {}).map(([k, x]) => `data-${k}="${esc(x)}"`).join(' ')}>Confirm</button>`); }
 
@@ -136,7 +136,7 @@ function top() {
 const ini = n => String(n || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?';
 function render() {
   if (!S) return;
-  R = parse();
+  R = parse(); try { applyColors(); } catch (e) {}
   const hb = homeBiz();
   if (hb && (R.page !== 'biz' || R.bid !== hb)) { R = { page: 'biz', bid: hb, tab: R.page === 'biz' ? R.tab : 'overview', sub: '' }; try { history.replaceState(null, '', '#/b/' + hb + (R.tab !== 'overview' ? '/' + R.tab : '')); } catch (e) {} }
   if (['master', 'follow-ups'].includes(R.page) || (!isSuper() && R.page === 'team')) R = { page: 'home' };
@@ -190,16 +190,13 @@ function vHome() {
    ${st(list.length, 'Businesses', `${cnt('active')} active · ${cnt('onboarding')} onboarding · ${cnt('paused')} paused`)}
    ${sup ? st(supers.length, 'RAREVO team', 'system admins', '', '/team') + st(owners.length, 'Client admins', `${list.filter(b => owners.some(u => u.businessId === b.id)).length} of ${list.length} businesses have a login`, '', '/team') + st(staff.length, 'Client staff', 'users added by businesses', '', '/team') : ''}
    ${st(num(S.rows.length), 'Total leads', `${S.rows.filter(open_).length} open · ${S.sheets.length} sheets`)}
-   ${st(num(wk.length), 'New leads · 7 days', `${wk.filter(r => srcGroup(r) === 'wa').length} WhatsApp · ${wk.filter(r => srcGroup(r) === 'web').length} website · ${wk.filter(r => srcGroup(r) === 'meta').length} Meta`)}
    ${st(bad.length ? bad.length : '✓', 'Connections', `${waN} WhatsApp · ${metaN} Meta · ${webN} websites${bad.length ? ' — ' + bad.length + ' need attention' : ''}`, bad.length ? 'warn' : '')}
-   ${sup ? st(money(spend, (list.find(b => b.meta) || {}).currency), 'Meta spend · 30 days', `${metaN} ad accounts`) : ''}
   </div>
-  ${bad.map(b => `<div class="alert"><b>Needs attention:</b> ${esc(b.name)} — ${esc((b.rarevo && b.rarevo.status === 'error' ? 'WhatsApp: ' + b.rarevo.error : '') || (b.meta ? 'Meta: ' + b.meta.error : ''))} ${sup ? `<button data-act="connect" data-id="${b.id}" data-v="${b.rarevo && b.rarevo.status === 'error' ? 'wa' : 'meta'}">See errors &amp; how to fix →</button>` : ''}</div>`).join('')}
-  ${sup && list.length > 1 && top5[0] && top5[0][1] ? `<div class="card" style="margin-bottom:12px"><div class="ch"><h2>Most new leads this week</h2></div><div class="list">${top5.filter(x => x[1]).map(([b, n]) => `<div class="li" style="cursor:pointer" data-go="/b/${b.id}/master"><span class="avatar" style="--c:${esc(b.color)}">${esc(ini(b.name).slice(0, 1))}</span><div class="tx"><b>${esc(b.name)}</b><small>${num(rowsOf(b.id).length)} leads total</small></div><b>+${n}</b></div>`).join('')}</div></div>` : ''}
   <div class="row" style="margin-bottom:12px"><input class="inp search" type="search" placeholder="Search name, industry, number…" data-act="homeq" value="${esc(UI.home.q)}">
    <div class="chips">${[['all', 'All', list.length], ['active', 'Active', cnt('active')], ['onboarding', 'Onboarding', cnt('onboarding')], ['paused', 'Paused', cnt('paused')]].map(([k, l, n]) => `<button class="chip ${f === k ? 'on' : ''}" data-act="homef" data-v="${k}">${l} <span class="n">${n}</span></button>`).join('')}</div></div>
   <div class="bgrid">${shown.map(bcard).join('')}${sup ? `<div class="addcard" data-act="addbiz" role="button" tabindex="0"><span class="plus">+</span><b>Add business</b><span class="small">Details · WhatsApp · Meta · Sheets</span></div>` : ''}</div>
-  ${!shown.length && !sup ? '<div class="empty">No businesses yet</div>' : ''}`;
+  ${!shown.length && !sup ? '<div class="empty">No businesses yet</div>' : ''}
+  <div style="margin-top:12px">${bad.map(b => `<div class="alert"><b>Needs attention:</b> ${esc(b.name)} — ${esc((b.rarevo && b.rarevo.status === 'error' ? 'WhatsApp: ' + b.rarevo.error : '') || (b.meta ? 'Meta: ' + b.meta.error : ''))} ${sup ? `<button data-act="connect" data-id="${b.id}" data-v="${b.rarevo && b.rarevo.status === 'error' ? 'wa' : 'meta'}">See errors &amp; how to fix →</button>` : ''}</div>`).join('')}</div>`;
 }
 function bcard(b) {
   const rows = rowsOf(b.id), last = rows.reduce((m, r) => Math.max(m, r.updated || r.added || 0), 0);
@@ -210,8 +207,8 @@ function bcard(b) {
    <div class="hd"><span class="avatar lg" style="--c:${esc(b.color)}">${esc(ini(b.name).slice(0, 1))}</span><div style="flex:1"><b>${esc(b.name)}</b><span class="pill ${pill}">${esc(cap(b.status))}</span> <span class="small muted">${esc(b.industry)}</span></div>${isSuper() ? `<button class="btn icon ghost sm" data-go="/b/${b.id}/settings" aria-label="Settings">${ic('gear')}</button>` : ''}</div>
    <div class="conn"><div>${ic('wa')}<b>${esc(b.phone || (b.rarevo ? 'WhatsApp' : 'WhatsApp'))}</b><span class="sp"></span><span class="dot ${wh}"></span><span class="small muted">${wt}</span></div>
     <div>${ic('meta')}<span>${esc(b.meta ? (b.meta.accountName || b.meta.adAccountId) : 'Meta ads')}</span><span class="sp"></span><span class="dot ${mh}"></span><span class="small muted">${mt}</span></div></div>
-   <div class="st"><div><b>${num(rows.length)}</b><small>Records</small></div><div><b>${sheetsOf(b.id).length}</b><small>Sheets</small></div><div><button class="lnk2" data-act="gousers" data-id="${b.id}"><b>${S.users.filter(u => u.businessId === b.id && u.role === 'owner').length} · ${S.users.filter(u => u.businessId === b.id && u.role === 'staff').length}</b><small>Admins · staff</small></button></div><div><b>${money(sp, b.currency).replace(/\.00$/, '')}</b><small>Spend 30d</small></div></div>
-   <div class="ft"><span class="small muted">${last ? 'Last activity ' + rel(last) : 'No activity yet'}<br>${S.users.some(u => u.role === 'owner' && u.businessId === b.id) ? '<span style="color:var(--green)">● Client login active</span>' : (isSuper() ? `<button class="lnk" data-act="clientlogin" data-id="${b.id}">+ Create client login</button>` : '')}</span><span class="sp"></span>${isSuper() && S.users.some(u => u.role === 'owner' && u.businessId === b.id) ? `<button class="btn sm" data-act="viewas" data-id="${S.users.find(u => u.role === 'owner' && u.businessId === b.id).id}" title="See the CRM exactly as the client sees it — no password">${ic('eye')}Client view</button>` : ''}<button class="btn sm pri" data-go="/b/${b.id}">Open ${ic('chev')}</button></div></div>`;
+   <div class="st"><div><button class="lnk2" data-go="/b/${b.id}/master"><b>${num(rows.length)}</b><small>Leads</small></button></div><div><button class="lnk2" data-go="/b/${b.id}/sheets"><b>${sheetsOf(b.id).length}</b><small>Sheets</small></button></div><div><button class="lnk2" data-go="/b/${b.id}/follow-ups"><b>${rows.filter(r => r.followUp && r.followUp < sod(Date.now()) + DAY).length}</b><small>Follow-ups due</small></button></div><div><button class="lnk2" data-act="gousers" data-id="${b.id}"><b>${S.users.filter(u => u.businessId === b.id && u.role === 'owner').length} · ${S.users.filter(u => u.businessId === b.id && u.role === 'staff').length}</b><small>Admins · staff</small></button></div></div>
+   <div class="ft"><span class="small muted">${last ? 'Last activity ' + rel(last) : 'No activity yet'}<br>${S.users.some(u => u.role === 'owner' && u.businessId === b.id) ? '<span style="color:var(--green)">● Client login active</span>' : (isSuper() ? `<button class="lnk" data-act="clientlogin" data-id="${b.id}">+ Create client login</button>` : '')}</span><span class="sp"></span>${isSuper() ? `<button class="btn sm icon" data-act="sharelogin" data-id="${b.id}" title="Share secure login link" aria-label="Share login">${ic('link')}</button>` : ''}${isSuper() && S.users.some(u => u.role === 'owner' && u.businessId === b.id) ? `<button class="btn sm" data-act="viewas" data-id="${S.users.find(u => u.role === 'owner' && u.businessId === b.id).id}" title="See the CRM exactly as the client sees it — no password">${ic('eye')}Client view</button>` : ''}<button class="btn sm pri" data-go="/b/${b.id}">Open ${ic('chev')}</button></div></div>`;
 }
 const cap = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
 
@@ -299,10 +296,12 @@ function vMasterAll() {
 }
 
 /* grid */
-const sk = sc => (sc.bid || 'all') + ':' + sc.sid + ':' + (sc.cat || '');
-const gs = k => UI.grid[k] || (UI.grid[k] = { q: '', st: '', pr: '', ow: '', col: '', src: '', sort: /:master:/.test(k) ? 'added' : 'pos', dir: /:master:/.test(k) ? -1 : 1, limit: 300, allCols: true, merge: true });
+const sk = sc => (sc.bid || 'all') + ':' + sc.sid + ':' + (sc.cat || '') + (sc.fu ? ':fu' : '');
+const gs = k => UI.grid[k] || (UI.grid[k] = /:fu$/.test(k) ? { q: '', st: '', pr: '', ow: '', col: '', src: '', sort: 'followUp', dir: 1, limit: 300, allCols: true, merge: false, fw: 'all' } : { q: '', st: '', pr: '', ow: '', col: '', src: '', sort: /:master:/.test(k) ? 'added' : 'pos', dir: /:master:/.test(k) ? -1 : 1, limit: 300, allCols: true, merge: false });
 function scopeSheets(sc) { return sc.sid === 'master' ? S.sheets.filter(s => (!sc.bid || s.businessId === sc.bid) && (!sc.cat || s.category === sc.cat)) : [SH(sc.sid)].filter(Boolean); }
-function scopeRows(sc) { const ids = new Set(scopeSheets(sc).map(s => s.id)); return S.rows.filter(r => ids.has(r.sheetId)); }
+function scopeRows(sc) { const ids = new Set(scopeSheets(sc).map(s => s.id)); return S.rows.filter(r => ids.has(r.sheetId) && (!sc.fu || (r.followUp && canEdit(r)))); }
+const FUW = [['all', 'All'], ['over', 'Overdue'], ['today', 'Today'], ['tom', 'Tomorrow'], ['week', 'This week']];
+function fuMatch(r, w) { const now = Date.now(), t = sod(now); return w === 'over' ? r.followUp < now : w === 'today' ? r.followUp < t + DAY : w === 'tom' ? r.followUp >= t + DAY && r.followUp < t + 2 * DAY : w === 'week' ? r.followUp < t + 7 * DAY : true; }
 function gcols(sc) {
   const shs = scopeSheets(sc), one = sc.sid !== 'master' ? shs[0] : null;
   let lw = {}; try { lw = JSON.parse(localStorage.getItem('rarevo-colw-' + sk(sc)) || '{}'); } catch (e) {}
@@ -310,14 +309,15 @@ function gcols(sc) {
   const lb = k => (one && one.labels && one.labels[k]) || BLABEL[k];
   const hid = new Set(one ? one.hidden || [] : []);
   const base = [['name', 170], ['phone', 130], ['email', 180], ['source', 115], ['status', 125], ['priority', 95], ['owner', 130], ['added', 165], ['followUp', 160], ['closed', 110], ['price', 100]];
-  const c = [{ k: 'color', w: 30, l: '' }, ...base.filter(([k]) => !hid.has(k)).map(([k, w]) => ({ k, l: lb(k), w: W(k, w), built: true }))];
+  let c = [{ k: 'color', w: 30, l: '' }, ...base.filter(([k]) => !hid.has(k)).map(([k, w]) => ({ k, l: lb(k), w: W(k, w), built: true }))];
   if (sc.sid === 'master') { if (!sc.bid) c.push({ k: 'business', l: 'Business', w: W('business', 125) }); c.push({ k: 'sheet', l: 'Sheet', w: W('sheet', 140) }, { k: 'category', l: 'Category', w: W('category', 115) }); }
   if (one) one.columns.forEach(x => c.push({ k: 'd:' + x.id, l: x.name, w: W('d:' + x.id, x.type === 'check' ? 90 : 150), def: x }));
   else if (gs(sk(sc)).allCols) { const m = new Map(); shs.forEach(s => s.columns.forEach(x => { const n = x.name.trim().toLowerCase(); if (!m.has(n)) m.set(n, { k: 'x:' + n, l: x.name, w: W('x:' + n, 150), def: x }); })); c.push(...m.values()); }
   if (!hid.has('notes')) c.push({ k: 'notes', l: lb('notes'), w: W('notes', 260), built: true });
-  if (sc.sid === 'master') c.push({ k: 'wa', l: 'Last WhatsApp', w: W('wa', 220) }, { k: 'waAt', l: 'Last chat', w: W('waAt', 140) });
+  if (sc.sid === 'master' || (one && one.source === 'whatsapp')) c.push({ k: 'wa', l: 'Last WhatsApp', w: W('wa', 220) }, { k: 'waAt', l: 'Last chat', w: W('waAt', 140) });
   if (one && one.order && one.order.length) { const idx = k => { const i = one.order.indexOf(k); return i < 0 ? 999 : i; }; const fixed = c.filter(x => x.k === 'color'), rest = c.filter(x => x.k !== 'color'); rest.sort((a, b) => idx(a.k) - idx(b.k)); c.length = 0; c.push(...fixed, ...rest); }
   c.push({ k: 'act', l: '', w: 104 });
+  { const hc = (UI.grid[sk(sc)] || {}).hc; if (hc && hc.length) c = c.filter(x => !hc.includes(x.k)); }
   let n = 0; c.forEach(x => { if (x.k !== 'color' && x.k !== 'act') x.letter = colLetter(n++); });
   return c;
 }
@@ -333,10 +333,12 @@ const SRCG = [['', 'All'], ['wa', 'WhatsApp'], ['sheet', 'Excel / sheets'], ['we
 function srcGroup(r) { const s = String(r.source || '').toLowerCase(); if (s.includes('whatsapp')) return 'wa'; if (/meta|facebook|instagram|\bfb\b|\big\b/.test(s)) return 'meta'; if (/website|form|web|landing/.test(s)) return 'web'; if (!s || s === 'manual') return 'manual'; return 'sheet'; }
 function gfilter(sc) {
   const g = gs(sk(sc)), q = g.q.trim().toLowerCase();
-  let rows = scopeRows(sc).filter(r => (!g.st || r.status === g.st) && (!g.pr || r.priority === g.pr) && (!g.col || r.color === g.col) && (!g.src || r.source === g.src) && (!g.sg || srcGroup(r) === g.sg) && (g.ow === '' || (g.ow === '-' ? !r.owner : r.owner === g.ow)));
+  let rows = scopeRows(sc).filter(r => (!g.st || r.status === g.st) && (!g.pr || r.priority === g.pr) && (!g.col || r.color === g.col) && (!g.src || r.source === g.src) && (!g.sg || srcGroup(r) === g.sg) && (!g.shf || r.sheetId === g.shf) && (!sc.fu || fuMatch(r, g.fw || 'all')) && (g.ow === '' || (g.ow === '-' ? !r.owner : r.owner === g.ow)));
   if (q) rows = rows.filter(r => [r.name, r.phone, r.email, r.notes, r.source, r.status, uname(r.owner), ...Object.values(r.data || {})].join(' ').toLowerCase().includes(q));
   const cols = gcols(sc), col = cols.find(c => c.k === g.sort);
   rows.sort((a, b) => { const x = sval(a, g.sort, col) ?? (g.sort === 'pos' ? a.added : null), y = sval(b, g.sort, col) ?? (g.sort === 'pos' ? b.added : null); if (x == null || x === '') return 1; if (y == null || y === '') return -1; return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * g.dir; });
+  const cfs = Object.keys(g).filter(x => x.startsWith('cf:') && g[x]);
+  if (cfs.length) rows = rows.filter(r => cfs.every(x => { const c = cols.find(y => y.k === x.slice(3)); if (!c) return true; const val = rawVal(r, c), w = g[x]; const d = colDef(r, c); if (d && d.type === 'check') return w === '1' ? !!val : !val; const sv = String(val ?? '').trim(); return w === '-' ? !sv : (d && d.type === 'multi' ? sv.split(',').map(x => x.trim()).includes(w) : sv === w); }));
   UI.dups = {};
   if (sc.sid === 'master' && g.merge) {
     const seen = new Map(), out = [];
@@ -344,6 +346,20 @@ function gfilter(sc) {
     rows = out;
   }
   return rows;
+}
+function rngRowIds() { const R = UI.rng; if (!R) return []; return UI.vrows.slice(R.r1, R.r2 + 1); }
+function cvKey(r, c) { if (c.k.startsWith('d:') || c.k.startsWith('x:')) { const d = colDef(r, c); return d ? r.id + '|d:' + d.id : null; } return r.id + '|' + c.k; }
+function cvOf(r, c) { const sh = SH(r.sheetId), k = cvKey(r, c); return sh && sh.cellv && k ? sh.cellv[k] || null : null; }
+function cvOpts(v) { return v.type === 'yesno' ? ['Yes', 'No'] : (v.options || []); }
+function cfFilters(sc, cols, sel) {
+  const rows = scopeRows(sc);
+  return cols.filter(c => (c.k.startsWith('d:') || c.k.startsWith('x:')) && cellType(c) !== 'ro').map(c => {
+    const d = rows.map(r => colDef(r, c)).find(Boolean); if (!d || !['select', 'multi', 'yesno', 'check'].includes(d.type)) return '';
+    if (d.type === 'check') return sel('cf:' + c.k, [['1', c.l + ': ticked'], ['0', c.l + ': not ticked']], c.l);
+    const base = d.type === 'yesno' ? ['Yes', 'No'] : (d.options || []);
+    const vals = [...new Set([...base, ...rows.flatMap(r => d.type === 'multi' ? String(rawVal(r, c) ?? '').split(',') : [String(rawVal(r, c) ?? '')]).map(x => x.trim()).filter(Boolean)])];
+    return sel('cf:' + c.k, [...vals.map(x => [x, c.l + ': ' + x]), ['-', c.l + ': (empty)']], c.l);
+  }).join('');
 }
 function grid(sc) {
   const k = sk(sc); UI.scopes[k] = sc; const g = gs(k), cols = gcols(sc), rows = gfilter(sc);
@@ -354,12 +370,12 @@ function grid(sc) {
   const canAdd = single && (sheetPerm(SH(sc.sid)) === 'edit' || S.me.role === 'staff');
   const tw = 46 + cols.reduce((a, c) => a + c.w, 0) + (single && m ? 44 : 0);
   return `<div class="xltool"><input class="inp sm search" type="search" placeholder="Search…" data-act="gq" data-g="${esc(k)}" value="${esc(g.q)}">
-   ${sel('st', STATUSES.map(s => [s, s]), 'Status')}${sel('pr', PRIOS.map(s => [s, s]), 'Priority')}${sel('src', SOURCES.map(s => [s, s]), 'Source')}${m ? sel('ow', [['-', 'Unassigned'], ...(sc.bid ? assignable(sc.bid) : S.users).map(u => [u.id, u.name])], 'POC') : ''}
-   <div class="colors">${COLORS.map(c => `<button class="${g.col === c ? 'on' : ''}" data-act="gcol" data-g="${esc(k)}" data-v="${c}" title="${esc(lab[c] || c)}"><i class="cd" style="--c:var(--c-${c})"></i><span>${esc(lab[c] || c)}</span></button>`).join('')}</div>
+   ${sel('st', STATUSES.map(s => [s, s]), 'Status')}${sel('pr', PRIOS.map(s => [s, s]), 'Priority')}${sel('src', SOURCES.map(s => [s, s]), 'Source')}${m ? sel('ow', [['-', 'Unassigned'], ...(sc.bid ? assignable(sc.bid) : S.users).map(u => [u.id, u.name])], 'POC') : ''}${!single && sc.bid ? sel('shf', sheetsOf(sc.bid).map(x => [x.id, 'Sheet: ' + x.name]), 'All sheets') : ''}${cfFilters(sc, cols, sel)}
+   <div class="colors">${COLORS.map(c => `<button class="${g.col === c ? 'on' : ''}" data-act="gcol" data-g="${esc(k)}" data-v="${c}" title="${esc(lab[c] || c)}"><i class="cd" style="--c:var(--c-${c})"></i><span>${esc(lab[c] || c)}</span></button>`).join('')}${sc.bid && m ? `<button data-act="editcolors" data-id="${esc(sc.bid)}" title="Rename or recolour these labels">✎</button>` : ''}</div>
    <span class="sp"></span>${!single ? `<label class="sw small"><input type="checkbox" data-act="allcols" data-g="${esc(k)}" ${g.allCols ? 'checked' : ''}>All columns</label>` : ''}
    <button class="btn sm icon ${UI.wrap ? 'dark' : ''}" data-act="wrap" title="Wrap text" aria-label="Wrap text">${ic('wrap')}</button>
    <button class="btn sm" data-act="export" data-g="${esc(k)}">${ic('down')}Export</button>${canAdd ? `<button class="btn sm pri" data-act="addrow" data-id="${sc.sid}">${ic('plus')}Row</button>` : ''}
-   <button class="btn sm ${UI.fs ? 'dark' : ''}" data-act="fs" title="Full screen (Esc to exit)">${ic('full')}${UI.fs ? 'Exit' : 'Full screen'}</button></div>
+   <button class="btn sm ${UI.fs ? 'dark' : ''}" data-act="fs" title="Full screen (Esc to exit)">${ic('full')}${UI.fs ? 'Exit' : 'Full screen'}</button>${(single ? (m || canAdd) : sc.bid && (m || S.me.role === 'staff')) ? `<button class="btn sm" data-act="insmenu" title="Insert rows, columns, dropdowns">${ic('plus')}Insert ▾</button>` : ''}</div>
   <div class="fbar"><div class="fmt">${[['fmtb', 'bold', 'Bold (Ctrl+B)'], ['fmti', 'italic', 'Italic (Ctrl+I)'], ['fmtc', 'txtc', 'Text colour'], ['fmtfill', 'fill', 'Row fill colour'], ['fmtclear', 'clear', 'Clear formatting']].map(([a, i2, t2]) => `<button class="fb" data-act="${a}" title="${t2}" aria-label="${t2}">${ic(i2)}</button>`).join('')}</div><input class="namebox" id="nameBox" readonly value="" aria-label="Cell"><span class="fx">fx</span><input class="fxin" id="fx" placeholder="Select a cell — double-click or start typing to edit" aria-label="Cell value"></div>
   <div class="sheetwrap ${UI.wrap ? 'wrapon' : ''}"><table class="gs" style="width:${tw}px"><colgroup><col style="width:46px">${cols.map(c => `<col data-k="${esc(c.k)}" style="width:${c.w}px">`).join('')}${single && m ? '<col style="width:44px">' : ''}</colgroup>
    <thead><tr class="lt"><th class="corner" data-act="selallcells" title="Select all"></th>${cols.map(c => `<th class="${c.letter ? 'lc' : 'nol'}" ${c.letter ? `data-ci="${UI.dcols.indexOf(c)}" title="Click to select column · drag to move · right-click for options"` : ''}>${c.letter || ''}${c.k !== 'act' && c.k !== 'color' ? `<span class="rz" data-rk="${esc(c.k)}"></span>` : ''}</th>`).join('')}${single && m ? '<th></th>' : ''}</tr>
@@ -386,7 +402,8 @@ function cellType(c) {
   if (c.k === 'followUp') return 'datetime'; if (c.k === 'closed') return 'date'; if (c.k === 'price') return 'number';
   if (['added', 'business', 'category', 'act', 'color', 'wa', 'waAt'].includes(c.k)) return 'ro';
   if (c.k === 'notes') return 'long';
-  if (c.def) return c.def.type === 'select' ? 'select' : c.def.type === 'check' ? 'check' : c.def.type === 'number' ? 'number' : c.def.type === 'date' ? 'date' : 'long';
+  if (c.def && c.def.type === 'multi') return 'multi';
+  if (c.def) return ['select', 'yesno'].includes(c.def.type) ? 'select' : c.def.type === 'check' ? 'check' : c.def.type === 'number' ? 'number' : c.def.type === 'date' ? 'date' : 'long';
   return 'text';
 }
 function rawVal(r, c) {
@@ -413,12 +430,16 @@ function cellHtml(r, c) {
   if (c.k === 'color') return `<td class="c cc" data-k="color" data-ro="1"><button class="cbtn" data-act="color" data-id="${r.id}" ${canEdit(r) ? '' : 'disabled'} title="${esc(labelsOf(r.businessId)[r.color] || 'No colour')} — click to change"><i class="cd" ${r.color ? `style="--c:var(--c-${r.color})"` : ''}></i></button></td>`;
   if (c.k === 'act') return `<td class="c ca" data-k="act" data-ro="1"><div class="acts">${r.phone ? `<button class="btn xs ghost" data-act="chat" data-id="${r.id}" title="WhatsApp" aria-label="WhatsApp">${ic('wa')}</button>` : ''}<button class="btn xs ghost" data-act="meet" data-id="${r.id}" title="Google Calendar meeting" aria-label="Meeting">${ic('cal')}</button><button class="btn xs ghost" data-act="open" data-id="${r.id}">Open</button></div></td>`;
   if ((c.k.startsWith('d:') || c.k.startsWith('x:')) && !colDef(r, c)) return `<td class="c" data-k="${esc(c.k)}" data-c="${c.letter || ''}" data-ro="1"><span class="muted">—</span></td>`;
-  const v = shownVal(r, c);
+  const v = shownVal(r, c), cvv = !['select', 'check', 'ro'].includes(t) && cvOf(r, c);
+  if (cvv) { const ops = cvOpts(cvv), vs = cvv.type === 'multi' ? String(v || '').split(',').map(x => x.trim()).filter(Boolean) : (v ? [String(v)] : []);
+    return `<td ${base.replace('class="c ', 'class="c cv ')}>${vs.map(x => `<span class="chip2 ${cvv.type === 'yesno' ? (x === 'Yes' ? 'yn-y' : x === 'No' ? 'yn-n' : '') : 'op' + (Math.max(0, ops.indexOf(x)) % 8)}">${esc(x)}${cvv.type !== 'multi' && ed ? '<i>▾</i>' : ''}</span>`).join(' ') || (ed ? '<span class="chip2 cvph">Choose ▾</span>' : '')}</td>`; }
   if (t === 'select') {
     if (!v && !ed) return `<td ${base}></td>`;
-    const cls = c.k === 'status' ? 'st-' + esc(String(v).split(' ')[0]) : c.k === 'priority' ? 'pr-' + esc(v) : c.k === 'source' ? 'src ' + srcCls(v) : '';
+    const cd = (c.k.startsWith('d:') || c.k.startsWith('x:')) ? colDef(r, c) : null, dt = cd && cd.type, oi = dt === 'select' ? (cd.options || []).indexOf(v) : -1;
+    const cls = dt === 'yesno' ? (v === 'Yes' ? 'yn-y' : v === 'No' ? 'yn-n' : '') : oi >= 0 ? 'op' + (oi % 8) : c.k === 'status' ? 'st-' + esc(String(v).split(' ')[0]) : c.k === 'priority' ? 'pr-' + esc(v) : c.k === 'source' ? 'src ' + srcCls(v) : '';
     return `<td ${base}><span class="chip2 ${cls}">${esc(v || '—')}${ed ? '<i>▾</i>' : ''}</span></td>`;
   }
+  if (t === 'multi') { const ops = (colDef(r, c) || {}).options || [], vs = String(v || '').split(',').map(x => x.trim()).filter(Boolean); return `<td ${base}>${vs.map(x => `<span class="chip2 op${Math.max(0, ops.indexOf(x)) % 8}">${esc(x)}</span>`).join(' ')}${ed ? '<span class="chip2 madd">＋</span>' : ''}</td>`; }
   if (t === 'check') return `<td ${base}><input type="checkbox" class="cb" data-act="chk" data-id="${r.id}" data-k="${esc(c.k)}" ${rawVal(r, c) ? 'checked' : ''} ${ed ? '' : 'disabled'} aria-label="${esc(c.l)}"></td>`;
   return `<td ${base}>${esc(v)}</td>`;
 }
@@ -428,6 +449,7 @@ function bulkBar(sc) {
   return `<div class="bulk"><b>${n} selected</b>
    ${m ? `<select class="sel" id="bkOw"><option value="">Assign to…</option><option value="-">Unassigned</option>${(oneBiz ? assignable(oneBiz) : S.users).map(u => `<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('')}</select><button class="btn" data-act="bulk" data-v="assign">Assign</button>` : ''}
    <select class="sel" id="bkSt"><option value="">Set status…</option>${STATUSES.map(s => `<option>${s}</option>`).join('')}</select><button class="btn" data-act="bulk" data-v="status">Apply</button>
+   <span class="bkfu">Follow-up <input class="inp" type="datetime-local" id="bkFu" style="height:30px;width:190px"><button class="btn" data-act="bulk" data-v="fu">Set</button><button class="btn" data-act="bulkfu" data-v="1">Tomorrow 10am</button><button class="btn" data-act="bulkfu" data-v="0">Remove</button></span>
    ${m && oneBiz ? `<select class="sel" id="bkSh"><option value="">Move to sheet…</option>${sheetsOf(oneBiz).map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select><button class="btn" data-act="bulk" data-v="move">Move</button>` : ''}
    <span class="sp"></span><button class="btn" data-act="bulk" data-v="export">Export</button>${m ? `<button class="btn danger" data-act="bulk" data-v="delete">Delete</button>` : ''}<button class="btn" data-act="bulk" data-v="clear">Clear</button></div>`;
 }
@@ -480,13 +502,18 @@ function editorOpts(r, c) {
   if (c.k === 'source') return [...new Set([...SOURCES, r.source])].map(x => [x, x]);
   if (c.k === 'owner') return [['', 'Unassigned'], ...assignable(r.businessId).map(u => [u.id, u.name])];
   if (c.k === 'sheet') return sheetsOf(r.businessId).map(x => [x.id, x.name]);
-  const d = colDef(r, c); const v = String(rawVal(r, c) || ''); return [['', ''], ...[...new Set([...(d.options || []), ...(v ? [v] : [])])].map(x => [x, x])];
+  const d = colDef(r, c); const v = String(rawVal(r, c) || ''); const base = d.type === 'yesno' ? ['Yes', 'No'] : (d.options || []);
+  return [['', ''], ...[...new Set([...base, ...(v ? [v] : [])])].map(x => [x, x]), ...(d.type === 'select' && canManage(r.businessId) ? [['__new', '+ Add new option…']] : [])];
 }
 function startEdit(td, init) {
   if (!td || td.dataset.ro || UI.editing) return;
   if (td.dataset.k === 'owner' && !canManage((S.rows.find(x => x.id === td.parentElement.dataset.rid) || {}).businessId)) return toast('Only the business admin can assign records');
   const r = S.rows.find(x => x.id === td.parentElement.dataset.rid), c = UI.cols[td.dataset.k]; if (!r || !c) return;
   const t = cellType(c), raw = rawVal(r, c);
+  if (t === 'multi') return multiPick(td, r, c);
+  const cvv = !['select', 'check', 'ro'].includes(t) && cvOf(r, c);
+  if (cvv && cvv.type === 'multi') return multiPick(td, r, c, cvv);
+  if (cvv) { selCell(td, true); td.classList.add('editing'); UI.editing = { td, rid: r.id, k: c.k, html: td.innerHTML }; td.innerHTML = `<select class="ed">${[['', ''], ...[...new Set([...cvOpts(cvv), ...(raw ? [String(raw)] : [])])].map(x => [x, x]), ...(cvv.type !== 'yesno' && canManage(r.businessId) ? [['__cvnew', '+ Add new option…'], ['__cvedit', '✎ Edit / rename options…']] : [])].map(([x, l]) => `<option value="${esc(x)}" ${String(x) === String(raw ?? '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`; const el = td.querySelector('.ed'); el.focus(); try { el.showPicker && el.showPicker(); } catch (e) {} return; }
   selCell(td, true); td.classList.add('editing');
   UI.editing = { td, rid: r.id, k: c.k, html: td.innerHTML };
   let h;
@@ -500,11 +527,32 @@ function startEdit(td, init) {
   if (el.tagName === 'TEXTAREA') { const fit = () => { el.style.height = 'auto'; el.style.height = Math.max(td.clientHeight - 2, el.scrollHeight) + 'px'; }; fit(); el.addEventListener('input', fit); const n = el.value.length; el.setSelectionRange(n, n); }
   if (el.tagName === 'SELECT') { try { el.showPicker && el.showPicker(); } catch (e) {} }
 }
+function newOptModal(r, c) {
+  UI.newOpt = { rid: r.id, cid: colDef(r, c).id };
+  modal('Add option to “' + c.l + '”', `<label class="f">New option<input class="inp" id="noN" placeholder="e.g. Interested"></label><p class="hint">It is added to the dropdown for every row in this sheet. To rename or remove options: right-click the column letter → Change type / options.</p>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savenewopt">Add &amp; use</button>`);
+}
+function optDraw() { const L = $('#optList'); if (L) L.innerHTML = UI.opts.map((o, i) => `<span class="chip2 op${i % 8}">${esc(o)} <button class="x" data-act="optdel" data-v="${i}" aria-label="Remove">×</button></span>`).join('') || '<span class="muted small">No options yet</span>'; const h = $('#qcO'); if (h) h.value = UI.opts.join(','); }
+function cvEdit(r, c) {
+  const v = cvOf(r, c); if (!v) return; UI.cvE = { rid: r.id, k: cvKey(r, c), ck: c.k, list: cvOpts(v).map(o => ({ o, n: o })) };
+  modal('Edit dropdown options', `<div id="cveList" class="stack"></div><div class="row" style="gap:6px;margin-top:8px"><input class="inp" id="cveNew" placeholder="New option" style="flex:1"><button class="btn" data-act="cveadd">+ Add</button></div><p class="hint">Change a name and it is renamed in the cell too.</p>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="cvesave">Save</button>`);
+  cveDraw();
+}
+function cveDraw() { const L = $('#cveList'); if (!L) return; L.innerHTML = UI.cvE.list.map((x, i) => `<div class="row" style="gap:6px"><span class="chip2 op${i % 8}" style="min-width:14px">&nbsp;</span><input class="inp" data-cve="${i}" value="${esc(x.n)}" style="flex:1"><button class="btn sm" data-act="cvemv" data-v="${i}" data-d="-1" ${i ? '' : 'disabled'}>↑</button><button class="btn sm" data-act="cvemv" data-v="${i}" data-d="1" ${i < UI.cvE.list.length - 1 ? '' : 'disabled'}>↓</button><button class="btn sm danger" data-act="cvedel" data-v="${i}">×</button></div>`).join('') || '<span class="muted small">No options</span>'; }
+function cveKeep() { $$('[data-cve]').forEach(i => { UI.cvE.list[+i.dataset.cve].n = i.value.trim(); }); }
+function multiPick(td, r, c, cvv) {
+  const d = cvv ? { options: cvv.options, id: null } : (colDef(r, c) || {}), cur = String(rawVal(r, c) || '').split(',').map(x => x.trim()).filter(Boolean), ops = [...new Set([...(d.options || []), ...cur])];
+  UI.mp = { rid: r.id, cid: d.id, k: c.k, cv: cvv ? cvKey(r, c) : null };
+  popMenu(td, `<div class="mh small muted">${esc(c.l)} — pick any</div><div class="mplist">${ops.map(o => `<label class="mi"><input type="checkbox" class="mpc" value="${esc(o)}" ${cur.includes(o) ? 'checked' : ''}> ${esc(o)}</label>`).join('')}</div>${canManage(r.businessId) ? `<div class="row" style="padding:4px 8px;gap:4px"><input class="inp" id="mpNew" placeholder="+ New option" style="height:28px;flex:1"></div>` : ''}<div class="row" style="padding:6px 8px;justify-content:space-between">${cvv && canManage(r.businessId) ? '<button class="btn sm" data-act="cvedit">✎ Edit options</button>' : '<span></span>'}<button class="btn sm pri" data-act="mpsave">Done</button></div>`);
+  setTimeout(() => { const n = $('#mpNew'); if (n) n.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); A.mpsave(); } }); }, 0);
+}
 function cancelEdit() { const E = UI.editing; if (!E) return; UI.editing = null; E.td.classList.remove('editing'); E.td.innerHTML = E.html; }
 async function commitEdit(move) {
   const E = UI.editing; if (!E) return; const el = E.td.querySelector('.ed'); if (!el) { UI.editing = null; return; }
   const r = S.rows.find(x => x.id === E.rid), c = UI.cols[E.k]; let val = el.value;
   UI.editing = null; E.td.classList.remove('editing');
+  if (val === '__new') { E.td.innerHTML = E.html; return newOptModal(r, c); }
+  if (val === '__cvedit') { E.td.innerHTML = E.html; return cvEdit(r, c); }
+  if (val === '__cvnew') { E.td.innerHTML = E.html; UI.cvNew = { rid: r.id, k: cvKey(r, c), ck: c.k }; return modal('Add option', `<label class="f">New option<input class="inp" id="noN"></label>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savecvopt">Add &amp; use</button>`); }
   const t = cellType(c), old = rawVal(r, c);
   if (t === 'number') val = val.replace(/[^\d.-]/g, '');
   const same = t === 'datetime' ? inDT(old) === val : t === 'date' && c.k === 'closed' ? inD(old) === val : String(old ?? '') === String(val);
@@ -707,15 +755,29 @@ function impModal() {
   const inc = I.books.filter(x => x.include), n = into ? (inc[0] ? inc[0].rows.length : 0) : sum(inc, x => x.rows.length);
   const body = `<div class="form"><label class="f full">Excel or CSV file<input class="inp" type="file" id="impFile" accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods" style="padding-top:5px"></label>
    <label class="f">Put rows into<select class="sel" id="impInto" data-act="impinto"><option value="">New sheet for each tab in the file</option>${sheetsOf(I.bid).map(s => `<option value="${esc(s.id)}" ${I.into === s.id ? 'selected' : ''}>Existing: ${esc(s.name)}</option>`).join('')}</select></label>
-   ${into ? `<label class="f">How to update “${esc(into.name)}”<select class="sel" id="impMode" data-act="impmode">${[['replace', 'Replace — make it exactly like the file'], ['update', 'Update matching rows + add new ones'], ['add', 'Only add new people']].map(([k, l]) => `<option value="${k}" ${(I.mode || 'replace') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`
+   ${into ? `<label class="f">How to update “${esc(into.name)}”<select class="sel" id="impMode" data-act="impmode">${[['update', 'Update matching rows + add new ones (safe)'], ['replace', 'Replace — make it exactly like the file'], ['add', 'Only add new people']].map(([k, l]) => `<option value="${k}" ${(I.mode || 'update') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`
    : `<label class="f">Category (for new sheets)<input class="inp" id="impCat" list="catlist" value="${esc(I.cat || (cats[0] || 'General'))}"><datalist id="catlist">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>`}
    <label class="f">Source for new records<select class="sel" id="impSrc">${SOURCES.map(s => `<option ${s === (I.src || 'Import') ? 'selected' : ''}>${s}</option>`).join('')}</select></label></div>
-   ${into ? `<p class="hint" style="margin:8px 0 0">${{ replace: 'The sheet will match the file: same columns in the same order, people not in the file are removed. Status, POC, follow-ups and colours are kept for people who are still there.', update: 'People already in the sheet (same phone, email or name) get their details updated. New people are added. Nobody is removed.', add: 'Only people not already in the sheet are added. Existing rows are not touched.' }[I.mode || 'replace']} You can undo it afterwards.${I.books.length > 1 ? ' Only the first ticked tab goes into this sheet.' : ''}</p>` : ''}
+   ${I.found && into && into.name === I.found ? `<div class="alert ok" style="margin:8px 0 0">Found the matching sheet <b>“${esc(I.found)}”</b> — this upload will update it instead of making a copy. Pick “New sheet” above if you want a separate one.</div>` : ''}
+   ${into ? `<p class="hint" style="margin:8px 0 0">${{ replace: 'The sheet will match the file: same columns in the same order, people not in the file are removed. Status, POC, follow-ups and colours are kept for people who are still there.', update: 'People already in the sheet (same phone, email or name) get their details updated. New people are added. Nobody is removed.', add: 'Only people not already in the sheet are added. Existing rows are not touched.' }[I.mode || 'update']} You can undo it afterwards.${I.books.length > 1 ? ' Only the first ticked tab goes into this sheet.' : ''}</p>` : ''}
    <div id="impBooks" style="margin-top:12px">${I.books.map((bk, i) => `<div class="wsec"><div class="row" style="margin-bottom:8px;flex-wrap:wrap"><label class="sw"><input type="checkbox" data-act="impinc" data-v="${i}" ${bk.include ? 'checked' : ''}><b>${esc(bk.name)}</b></label><span class="muted small">${bk.rows.length} rows · ${bk.headers.length} columns${bk.junk ? ` · <b style="color:var(--red)">${bk.junk} title/total rows skipped</b>` : ''}</span><span class="sp"></span>
      <label class="small row" style="gap:4px">Headings are in row <select class="sel" style="height:28px;max-width:260px" data-act="imphead" data-v="${i}">${bk.raw.slice(0, 15).map((r, k) => `<option value="${k}" ${bk.hrow === k ? 'selected' : ''}>${k + 1}: ${esc(r.map(x => String(x ?? '').trim()).filter(Boolean).join(' | ').slice(0, 50))}</option>`).join('')}</select></label>
      ${I.into ? '' : `<input class="inp" style="height:28px;width:180px" data-act="impname" data-v="${i}" value="${esc(bk.name)}" aria-label="Sheet name">`}</div>
      <div class="map">${bk.headers.map((h, j) => `<div class="h">${esc(h)}<span class="ex">${esc(bk.rows.slice(0, 3).map(r => r[j]).filter(Boolean).join(' · ').slice(0, 60))}</span></div><span class="muted">→</span><select class="sel" style="height:28px" data-act="impmap" data-v="${i}:${j}">${TARGETS.map(([t, l]) => `<option value="${t}" ${bk.target[j] === t ? 'selected' : ''}>${l}</option>`).join('')}</select>`).join('')}</div></div>`).join('') || `<p class="hint">Choose a file. Each tab in an Excel file becomes its own sheet. The heading row is found automatically (you can change it), and title or “Total…” rows are skipped.</p>`}</div>`;
   modal('Upload sheet — ' + b.name, body, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="impgo" ${n ? '' : 'disabled'}>${into ? 'Check changes' : 'Import ' + n + ' rows'}</button>`, { wide: true, nofocus: true });
+}
+function impDetect() {
+  const I = UI.imp; I.found = ''; if (I.into || I.books.length !== 1) return;
+  const bk = I.books[0], base = String(I.file || '').replace(/\.[^.]+$/, '').toLowerCase().trim(), heads = new Set(bk.headers.map(h => h.toLowerCase().trim()));
+  let best = null, bs = 0;
+  sheetsOf(I.bid).forEach(sh => {
+    const names = new Set([...sh.columns.map(c => c.name.toLowerCase()), ...Object.values(sh.labels || {}).map(x => String(x).toLowerCase())]);
+    const hit = [...heads].filter(h => names.has(h)).length, score = (sh.name.toLowerCase() === base || sh.name.toLowerCase() === bk.name.toLowerCase() ? 5 : 0) + (heads.size ? hit / heads.size * 4 : 0);
+    const people = S.rows.filter(r => r.sheetId === sh.id), ph = new Set(people.map(r => digits(r.phone)).filter(Boolean));
+    const pi = bk.target.indexOf('phone'), same = pi < 0 ? 0 : bk.rows.slice(0, 200).filter(r => ph.has(digits(r[pi]))).length / Math.min(200, bk.rows.length || 1);
+    const sc = score + same * 6; if (sc > bs) { bs = sc; best = sh; }
+  });
+  if (best && bs >= 4) { I.into = best.id; I.mode = 'update'; I.found = best.name; }
 }
 function impKeep() { const I = UI.imp; if (!I) return; if ($('#impCat')) I.cat = v('impCat'); I.src = v('impSrc'); I.into = v('impInto'); if ($('#impMode')) I.mode = v('impMode'); }
 function impPayload(bk, src) {
@@ -731,7 +793,7 @@ async function impGo() {
   impKeep(); const I = UI.imp, books = I.books.filter(b => b.include);
   if (!books.length) return toast('Choose at least one tab to import', '', 1);
   if (I.into) {
-    const bk = books[0], p = impPayload(bk, I.src), mode = I.mode || 'replace';
+    const bk = books[0], p = impPayload(bk, I.src), mode = I.mode || 'update';
     return run(async () => {
       const r = await api('POST', `/sheets/${I.into}/sync`, { mode, ...p, preview: true }), x = r.summary; UI.impP = { mode, p, file: bk.name };
       modal('Confirm upload', `<div class="stats"><div class="stat"><b>${x.add}</b><span>new people added</span></div><div class="stat"><b>${x.update}</b><span>rows updated</span></div><div class="stat ${x.remove ? 'warn' : ''}"><b>${x.remove}</b><span>rows removed (not in file)</span></div>${x.skip ? `<div class="stat"><b>${x.skip}</b><span>already there, left as is</span></div>` : ''}</div>
@@ -760,7 +822,7 @@ async function loadContacts(bid, force) {
   if (UI.wa[bid] && UI.wa[bid].loading) return;
   UI.wa[bid] = { loading: true, contacts: (UI.wa[bid] || {}).contacts || [] };
   try {
-    if (force) { const r = await api('POST', `/businesses/${bid}/rarevo/sync`); putBiz(r.business); toast(`Synced ${r.count} WhatsApp contacts`); }
+    if (force) { const r = await api('POST', `/businesses/${bid}/rarevo/sync`); putBiz(r.business); toast(`Synced ${r.count} WhatsApp contacts`, (r.added || r.updated) ? `${r.added || 0} new · ${r.updated || 0} updated in the WhatsApp sheet` : ''); try { const nb = await api('GET', '/bootstrap'); S = nb; } catch (e) {} }
     const r = await api('GET', `/businesses/${bid}/contacts`); UI.wa[bid] = { contacts: r.contacts, summary: r.summary };
   } catch (e) { UI.wa[bid] = { contacts: [], error: e.message }; if (force) { toast(e.message, '', 1); await refresh(); return; } }
   if (R.page === 'biz' && R.bid === bid) render();
@@ -778,12 +840,20 @@ function vWA(b) {
    ${b.rarevo.error ? `<div class="alert" style="margin:10px 0 0">${esc(b.rarevo.error)}</div>` : ''}
    <p class="hint" style="margin-top:6px">View-only: the CRM reads contacts and chats from your Rarevo platform — replies and automations stay in Rarevo.</p></div>
   ${nums.length ? `<div class="kpis">${nums.map(([k, x]) => `<div class="kpi"><small>${esc(cap(k.replace(/[_-]/g, ' ')))}</small><b>${num(x)}</b></div>`).join('')}</div>` : ''}
-  <div class="card p0"><div class="toolbar" style="padding:10px 12px"><h2>WhatsApp contacts</h2><span class="muted small">${(W.contacts || []).length} total · ${notIn.length} not in CRM yet</span><span class="sp"></span><input class="inp search" type="search" placeholder="Search contacts…" data-act="waq" value="${esc(UI.waQ)}">
+  ${waSheetView(b) || `<div class="card p0"><div class="toolbar" style="padding:10px 12px"><h2>WhatsApp contacts</h2><span class="muted small">${(W.contacts || []).length} total · ${notIn.length} not in CRM yet</span><span class="sp"></span><input class="inp search" type="search" placeholder="Search contacts…" data-act="waq" value="${esc(UI.waQ)}">
    <select class="sel" id="waSheet" aria-label="Sheet">${sheetsOf(b.id).map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select>
    <button class="btn sm pri" data-act="waadd" data-id="${b.id}" ${UI.waSel.size ? '' : 'disabled'}>Add ${UI.waSel.size || ''} to sheet</button><button class="btn sm" data-act="waaddall" data-id="${b.id}" ${notIn.length ? '' : 'disabled'}>Add all new (${notIn.length})</button></div>
    ${W.loading ? '<div class="empty">Loading contacts…</div>' : W.error ? `<div class="alert" style="margin:0 12px 12px">${esc(W.error)}</div>` : `<div class="scroll"><table class="t stk"><thead><tr><th style="width:30px"></th><th>Name</th><th>Number</th><th>Last message</th><th>Last active</th><th>In CRM</th><th></th></tr></thead><tbody>
    ${list.slice(0, 500).map(c => { const r = inCrm.get(digits(c.number)); return `<tr><td><input type="checkbox" class="cb" data-act="wasel" data-v="${esc(c.number)}" ${UI.waSel.has(c.number) ? 'checked' : ''} ${r ? 'disabled' : ''} aria-label="Select"></td><td><b>${esc(c.name || '—')}</b>${(c.tags || []).map(tg => ` <span class="pill">${esc(tg)}</span>`).join('')}</td><td class="nowrap">${esc(c.number)}</td><td class="muted" style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.lastMessage)}</td><td class="nowrap small">${c.lastAt ? esc(rel(c.lastAt)) : ''}</td><td>${r ? `<button class="btn xs" data-act="open" data-id="${r.id}">${esc((SH(r.sheetId) || {}).name || 'Open')}</button>` : '<span class="pill warn">Not added</span>'}</td><td><button class="btn xs" data-act="wachat" data-id="${b.id}" data-v="${esc(c.number)}" data-n="${esc(c.name)}">View chat</button></td></tr>`; }).join('') || '<tr><td colspan="7"><div class="empty">No contacts yet — press Sync now</div></td></tr>'}
-   </tbody></table></div>`}</div>`;
+   </tbody></table></div>`}</div>`}`;
+}
+function waSheetView(b) {
+  if (b.waAuto === false) return '';
+  const sh = S.sheets.find(x => x.businessId === b.id && x.source === 'whatsapp');
+  if (!sh) return `<div class="card"><div class="empty">The WhatsApp sheet is created on the first sync. <button class="btn sm pri" data-act="wasync" data-id="${b.id}">${ic('sync')}Sync now</button></div></div>`;
+  const sc = { bid: b.id, sid: sh.id, cat: '' }, k = sk(sc), g = gs(k); if (!g.waInit) { g.waInit = 1; g.sort = 'waAt'; g.dir = -1; }
+  const n = gfilter(sc).length;
+  return `<div class="xl ${UI.fs ? 'fs' : ''}"><div class="xlcats"><b>WhatsApp sheet</b><span class="small muted">${n} people · newest chat first · tick rows (or click row numbers, Shift-click for a range), then use the black bar to <b>Move to sheet</b>, assign or set follow-ups</span><span class="sp"></span><button class="btn sm" data-act="waselall" data-g="${esc(k)}">Select all ${n}</button><button class="btn sm" data-go="/b/${b.id}/sheets/${sh.id}">Open as sheet</button></div>${grid(sc)}</div>`;
 }
 async function waChat(bid, number, name) {
   modal('WhatsApp · ' + (name || number), '<div class="empty">Loading chat…</div>', `<a class="btn" href="https://wa.me/${esc(digits(number).length === 10 ? '91' + digits(number) : String(number).replace(/\D/g, ''))}" target="_blank" rel="noopener">Open in WhatsApp</a><button class="btn" data-act="close">Close</button>`, { sub: number + ' · view only, from Rarevo', nofocus: true });
@@ -910,6 +980,11 @@ function connectModal(bid, which) {
 
 /* ---------------- follow-ups ---------------- */
 function vFollow(bid) {
+  if (!bid) return vFollowAll();
+  const sc = { bid, sid: 'master', cat: '', fu: true }, g = gs(sk(sc)), all = scopeRows(sc);
+  return `<div class="xl ${UI.fs ? 'fs' : ''}"><div class="xlcats"><div class="chips">${FUW.map(([k, l]) => `<button class="chip ${g.fw === k ? 'on' : ''}" data-act="fuw" data-g="${esc(sk(sc))}" data-v="${k}">${l} <span class="n">${all.filter(r => fuMatch(r, k)).length}</span></button>`).join('')}</div><span class="sp"></span><span class="small muted">Reminder 30 min before · set the date in “Next follow-up”</span></div>${grid(sc)}</div>`;
+}
+function vFollowAll() {
   const now = Date.now(), t = sod(now), f = UI.fu, biz = bid || f.biz;
   const items = S.rows.filter(r => r.followUp && (!biz || r.businessId === biz) && (!f.ow || r.owner === f.ow) && canEdit(r)).sort((a, b) => a.followUp - b.followUp);
   const G = [['Overdue', r => r.followUp < now], ['Next 30 minutes', r => r.followUp < now + 30 * MIN], ['Later today', r => r.followUp < t + DAY], ['Tomorrow', r => r.followUp < t + 2 * DAY], ['This week', r => r.followUp < t + 7 * DAY], ['Later', () => true]];
@@ -996,7 +1071,7 @@ function vTeam(bid) {
   if (!canManage(bid)) return '<div class="empty">Only the business admin can manage the team.</div>';
   const b = B(bid), list = bizUsers(bid), reqs = pendingReqs(bid);
   const sheetsN = u => sheetsOf(bid).filter(s => sheetPermOf(u, s) !== 'none').length;
-  return `<div class="ph"><div class="t"><h2>Team &amp; access</h2><p>Business admins see and manage everything. Employees see the records assigned to them, plus the sheets you share with them.</p></div><button class="btn" data-act="copyv" data-v="${esc(gateLink(b))}">${ic('link')}Copy team login link</button><button class="btn pri" data-act="user" data-b="${esc(bid)}">${ic('plus')}Add employee</button></div>
+  return `<div class="ph"><div class="t"><h2>Team &amp; access</h2><p>Business admins see and manage everything. Employees see the records assigned to them, plus the sheets you share with them.</p></div><button class="btn" data-act="sharelogin" data-id="${esc(bid)}">${ic('link')}Share login link</button><button class="btn pri" data-act="user" data-b="${esc(bid)}">${ic('plus')}Add employee</button></div>
   ${reqs.length ? `<div class="card" style="margin-bottom:12px;border-color:#fde68a"><h2 style="margin-bottom:6px">Access requests <span class="pill warn">${reqs.length}</span></h2><div class="list">${reqs.map(q => `<div class="li"><span class="avatar sm" style="--c:#6b7280">${esc(ini(uname(q.userId)))}</span><div class="tx"><b>${esc(uname(q.userId))} wants to ${q.level === 'edit' ? 'edit' : 'view'} ${esc(q.sheetId === 'master' ? 'the Master sheet' : '“' + ((SH(q.sheetId) || {}).name || 'sheet') + '”')}</b><small>${esc(rel(q.at))}${q.note ? ' · “' + esc(q.note) + '”' : ''}</small></div>${q.sheetId !== 'master' ? `<button class="btn xs" data-act="reqok" data-id="${q.id}" data-l="view">Allow view</button><button class="btn xs pri" data-act="reqok" data-id="${q.id}" data-l="edit">Allow edit</button>` : `<button class="btn xs pri" data-act="reqok" data-id="${q.id}" data-l="view">Allow</button>`}<button class="btn xs danger" data-act="reqno" data-id="${q.id}">Deny</button></div>`).join('')}</div></div>` : ''}
   <div class="card p0"><div class="scroll"><table class="t stk"><thead><tr><th>Name</th><th>Login ID</th><th>Role</th><th>Sheet access</th><th class="num">Records</th><th class="num">Open</th><th>Last sign-in</th><th></th></tr></thead><tbody>${list.map(u => { const rs = S.rows.filter(r => r.owner === u.id); return `<tr><td><div class="row" style="flex-wrap:nowrap"><span class="avatar sm" style="--c:${u.role === 'owner' ? 'var(--blue)' : '#6b7280'}">${esc(ini(u.name))}</span><div><b>${esc(u.name)}</b>${u.id === S.me.id ? ' <span class="pill">you</span>' : ''}<br><small class="muted">${esc(u.email || u.phone || '')}</small></div></div></td><td><code>${esc(u.username)}</code></td><td><span class="pill ${u.role === 'owner' ? 'info' : ''}">${ROLE_N[u.role]}</span></td><td class="small">${u.role === 'owner' ? 'Everything' : `${sheetsN(u)} of ${sheetsOf(bid).length} sheets${((b.masterAccess || {}).view || []).includes(u.id) ? ' + master' : ''}`}</td><td class="num">${rs.length}</td><td class="num">${rs.filter(open_).length}</td><td class="small muted">${u.lastLogin ? esc(rel(u.lastLogin)) : 'never'}</td><td class="nowrap">${u.role !== 'owner' ? `<button class="btn xs" data-act="uaccess" data-id="${u.id}">Access</button>` : ''}<button class="btn xs" data-act="user" data-id="${u.id}" data-b="${esc(bid)}">Edit</button>${u.id !== S.me.id ? `<button class="btn xs" data-act="resetpw" data-id="${u.id}">New password</button><button class="btn xs danger" data-act="deluser" data-id="${u.id}">Remove</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="8"><div class="empty">No people yet</div></td></tr>'}</tbody></table></div></div>`;
 }
@@ -1032,9 +1107,25 @@ function userModal(id, bid, role) {
    ${id ? '' : `<label class="f full">Password<span class="row"><input class="inp" id="usPw" style="flex:1" value="${esc(genPw())}"><button class="btn" type="button" data-act="regen">Generate</button></span><span class="hint">Generated by the system. You will see a ready message to share after saving.</span></label>`}</div>`,
     `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="saveuser" data-id="${esc(id || '')}">${id ? 'Save' : 'Create login'}</button>`);
 }
+const HEXD = { red: '#ef4444', orange: '#f97316', yellow: '#eab308', green: '#22c55e', blue: '#3b82f6', purple: '#a855f7' };
+function applyColors() { const b = R && R.bid ? B(R.bid) : null, x = (b && b.colorHex) || {}, st = document.documentElement.style; COLORS.forEach(c => { if (x[c]) { st.setProperty('--c-' + c, x[c]); st.setProperty('--t-' + c, x[c] + '2e'); } else { st.removeProperty('--c-' + c); st.removeProperty('--t-' + c); } }); }
+function colorModal(bid) {
+  const b = B(bid), lab = labelsOf(bid), hx = b.colorHex || {};
+  modal('Colour labels — ' + b.name, `<p class="hint" style="margin-top:0">Change the name and colour of each label. Rows already marked keep their label and get the new colour.</p><div class="stack">${COLORS.map(c => `<div class="row" style="gap:8px"><input type="color" id="ch-${c}" value="${esc(hx[c] || HEXD[c])}" style="width:42px;height:32px;padding:0;border:1px solid var(--line);border-radius:3px;background:none"><input class="inp" id="cl-${c}" value="${esc(lab[c] || LABELS[c])}" style="flex:1" maxlength="30"><button class="btn sm" data-act="colreset" data-v="${c}" title="Default colour">↺</button></div>`).join('')}</div>`,
+    `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savecolors" data-id="${bid}">Save</button>`);
+}
+function shareModal(bid) {
+  const b = B(bid), link = gateLink(b), us = S.users.filter(u => u.businessId === bid && (isSuper() ? true : u.role === 'staff')).sort((a, c) => (a.role === 'owner' ? -1 : 1) - (c.role === 'owner' ? -1 : 1));
+  const invite = u => `Hi ${u ? u.name : ''},\n\nHere is your secure login page for ${b.name} CRM:\n${link}\n\n${u ? 'Login ID: ' + u.username + '\n' : ''}Your password will be sent separately. Please don't share it with anyone.\n\n— RAREVO MEDIA`;
+  modal('Share login — ' + b.name, `<label class="f">Secure login page for ${esc(b.name)}<span class="row"><input class="inp" style="flex:1" readonly value="${esc(link)}"><button class="btn" data-act="copyv" data-v="${esc(link)}">Copy link</button><a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open</a></span></label>
+   <p class="hint">Only people of ${esc(b.name)} can sign in on this page. Logins from other businesses are refused, 5 wrong passwords lock it for 15 minutes, and new users must set their own password on first sign-in.</p>
+   <table class="t" style="margin-top:8px"><thead><tr><th>Person</th><th>Login ID</th><th>Last sign-in</th><th></th></tr></thead><tbody>${us.map(u => `<tr><td><b>${esc(u.name)}</b><br><span class="small muted">${esc(ROLE_N[u.role])}${u.disabled ? ' · <b style="color:var(--red)">blocked</b>' : u.mustChange ? ' · first sign-in pending' : ''}</span></td><td><code>${esc(u.username)}</code></td><td class="small muted">${u.lastLogin ? esc(rel(u.lastLogin)) : 'never'}</td>
+     <td class="nowrap"><a class="btn xs" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(invite(u))}">${ic('wa')}Link</a><button class="btn xs" data-act="copyv" data-v="${esc(invite(u))}">Copy invite</button><button class="btn xs pri" data-act="shresend" data-id="${u.id}" title="Makes a new password and shows the full message to send">New password &amp; send</button><button class="btn xs ${u.disabled ? '' : 'danger'}" data-act="shblock" data-id="${u.id}">${u.disabled ? 'Unblock' : 'Block'}</button></td></tr>`).join('') || `<tr><td colspan="4" class="muted">No logins yet for ${esc(b.name)}.</td></tr>`}</tbody></table>`,
+    `${isSuper() && !S.users.some(u => u.role === 'owner' && u.businessId === bid) ? `<button class="btn pri" data-act="clientlogin" data-id="${bid}">+ Create client login</button>` : ''}<span class="sp"></span><a class="btn" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(invite(null))}">${ic('wa')}Send link on WhatsApp</a><button class="btn pri" data-act="close">Done</button>`, { wide: true, nofocus: true });
+}
 function credModal(u, pw) {
   const b = B(u.businessId), link = b ? gateLink(b) : appLink() + '#/admin';
-  const msg = `Hi ${u.name},\n\nYour ${b ? b.name + ' ' : ''}CRM login is ready.\n\nLogin page: ${link}\nLogin ID: ${u.username}\nPassword: ${pw}\n\nPlease change the password after your first sign-in (top-right menu → Change password).\n\n— RAREVO MEDIA`;
+  const msg = `Hi ${u.name},\n\nYour ${b ? b.name + ' ' : ''}CRM login is ready.\n\nLogin page: ${link}\nLogin ID: ${u.username}\nPassword: ${pw}\n\nYou will be asked to set your own password the first time you sign in.\n\n— RAREVO MEDIA`;
   UI.cred = msg;
   const line = (l, x) => `<label class="f">${l}<span class="row"><input class="inp" style="flex:1" readonly value="${esc(x)}"><button class="btn" data-act="copyv" data-v="${esc(x)}">Copy</button></span></label>`;
   modal('Login ready — share with ' + u.name, `<div class="alert ok" style="margin-bottom:12px">${esc(ROLE_N[u.role])}${b ? ' for ' + esc(b.name) : ''}. Copy the details now — the password is not shown again (you can always create a new one).</div>
@@ -1046,8 +1137,8 @@ function colsModal(id) {
   const s = SH(id), lab = s.labels || {}, hid = new Set(s.hidden || []);
   modal('Columns & headers — ' + s.name, `<p class="hint">Rename any header (for example “Phone” → “WhatsApp number”), hide built-in columns you don't need, and add or edit your own columns. Tip: double-click a header in the sheet to rename it quickly.</p>
    <h3 style="margin:12px 0 6px">Built-in columns</h3><div class="colgrid">${Object.keys(BLABEL).map(k => `<span class="muted small">${BLABEL[k]}</span><input class="inp" id="bl-${k}" value="${esc(lab[k] || '')}" placeholder="${esc(BLABEL[k])}"><label class="sw"><input type="checkbox" id="bs-${k}" ${hid.has(k) ? '' : 'checked'} ${k === 'name' ? 'disabled' : ''}>Show</label>`).join('')}</div>
-   <h3 style="margin:16px 0 6px">Your columns</h3><div class="stack">${s.columns.map((c, i) => `<div class="row"><input class="inp" style="flex:1 1 150px" id="ec-${i}" value="${esc(c.name)}" aria-label="Column name"><select class="sel" id="et-${i}">${['text', 'number', 'date', 'select', 'check'].map(t => `<option value="${t}" ${c.type === t ? 'selected' : ''}>${{ text: 'Text', number: 'Number', date: 'Date', select: 'Dropdown', check: 'Checkbox' }[t]}</option>`).join('')}</select><input class="inp" style="flex:1 1 150px" id="eo-${i}" value="${esc((c.options || []).join(', '))}" placeholder="Dropdown options, comma separated"><label class="sw"><input type="checkbox" id="ed-${i}">Delete</label></div>`).join('') || '<div class="small muted">None yet</div>'}
-    <div class="row" style="border-top:1px dashed var(--line);padding-top:10px"><input class="inp" style="flex:1 1 150px" id="nc-n" placeholder="New column name"><select class="sel" id="nc-t"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown</option><option value="check">Checkbox</option></select><input class="inp" style="flex:1 1 150px" id="nc-o" placeholder="Dropdown options (optional)"></div></div>`,
+   <h3 style="margin:16px 0 6px">Your columns</h3><div class="stack">${s.columns.map((c, i) => `<div class="row"><input class="inp" style="flex:1 1 150px" id="ec-${i}" value="${esc(c.name)}" aria-label="Column name"><select class="sel" id="et-${i}">${['text', 'number', 'date', 'select', 'multi', 'yesno', 'check'].map(t => `<option value="${t}" ${c.type === t ? 'selected' : ''}>${{ text: 'Text', number: 'Number', date: 'Date', select: 'Dropdown', multi: 'Multi-select', yesno: 'Yes / No', check: 'Checkbox' }[t]}</option>`).join('')}</select><input class="inp" style="flex:1 1 150px" id="eo-${i}" value="${esc((c.options || []).join(', '))}" placeholder="Dropdown options, comma separated"><label class="sw"><input type="checkbox" id="ed-${i}">Delete</label></div>`).join('') || '<div class="small muted">None yet</div>'}
+    <div class="row" style="border-top:1px dashed var(--line);padding-top:10px"><input class="inp" style="flex:1 1 150px" id="nc-n" placeholder="New column name"><select class="sel" id="nc-t"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown (your options)</option><option value="multi">Multi-select (pick many)</option><option value="yesno">Yes / No</option><option value="check">Checkbox</option></select><input class="inp" style="flex:1 1 150px" id="nc-o" placeholder="Dropdown options (optional)"></div></div>`,
     `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savecols" data-id="${s.id}">Save columns</button>`, { wide: true, nofocus: true });
 }
 function eRange() { const keep = UI.meta; UI.meta = UI.em; const r = mRange(); UI.meta = keep; return r; }
@@ -1129,11 +1220,18 @@ function renderLogin() {
     if (S) return;
     $('#app').innerHTML = `<div class="login"><form class="card stack" id="loginForm" data-gate="${esc(g ? g.slug : '')}">${g ? `<div class="row"><span class="avatar lg" style="--c:${esc(g.color)}">${esc(ini(g.name).slice(0, 1))}</span><div><h1>${esc(g.name)}</h1><span class="small muted">${esc(g.industry || 'CRM')} · secure login</span></div></div>` : `<div class="logo"><span class="mk">R</span>RAREVO <span class="tag">CRM</span></div><div><h1>${admin ? 'System admin sign in' : 'Sign in'}</h1></div>`}
      <p class="hint">Use the login ID and password you were given.</p>
-     <label class="f">Login ID<input class="inp" id="lgE" autocomplete="username" required placeholder="e.g. ${esc(g ? g.slug : 'business')}.admin"></label><label class="f">Password<input class="inp" id="lgP" type="password" autocomplete="current-password" required></label><div id="lgErr"></div><button class="btn pri" type="submit">Sign in</button>
+     <label class="f">Login ID<input class="inp" id="lgE" autocomplete="username" required placeholder="e.g. ${esc(g ? g.slug : 'business')}.admin"></label><label class="f">Password<span class="pwwrap"><input class="inp" id="lgP" type="password" autocomplete="current-password" required><button type="button" class="pweye" data-act="pweye" aria-label="Show password">${ic('eye')}</button></span></label><div id="lgCaps" class="small" style="color:var(--red)" hidden>Caps Lock is on</div><div id="lgErr"></div><button class="btn pri" type="submit">${ic('lock')}Sign in securely</button>
+     <p class="hint" style="text-align:center;margin:0">🔒 Encrypted connection · 5 wrong tries locks the login for 15 minutes</p>
      <p class="hint" style="text-align:center">Powered by RAREVO MEDIA${g ? ` · <a href="#/admin" data-act="toadmin">Admin</a>` : ''}</p></form></div>`;
     const e = $('#lgE'); if (e) e.focus();
+    const pw = $('#lgP'); if (pw) pw.addEventListener('keyup', ev => { const c = $('#lgCaps'); if (c && ev.getModifierState) c.hidden = !ev.getModifierState('CapsLock'); });
   };
   if (gate) fetch('/api/gate/' + encodeURIComponent(gate)).then(r => r.ok ? r.json() : null).then(g => draw(g)).catch(() => draw(null)); else draw(null);
+}
+function mustChangeCheck() {
+  if (!S || !S.me || !S.me.mustChange || MODE === 'demo' || S.viewingAs || UI.mcShown) return; UI.mcShown = true;
+  modal('Set your own password', `<p class="hint" style="margin-top:0">For security, please replace the password you were given with your own before you continue.</p><div class="form"><label class="f full">Password you were given<input class="inp" type="password" id="pwC" autocomplete="current-password"></label><label class="f full">New password (min 8 characters)<input class="inp" type="password" id="pwN" autocomplete="new-password"></label><label class="f full">Type it again<input class="inp" type="password" id="pwN2" autocomplete="new-password"></label></div>`, `<button class="btn pri" data-act="savepw2">Save password</button>`, { nofocus: false });
+  const x = $('#box .x, #box [data-act="close"]'); if (x) x.remove(); $('#modal').dataset.lock = '1';
 }
 /* ---------------- actions ---------------- */
 async function updateRow(id, patch, hard) {
@@ -1148,6 +1246,13 @@ const A = {
   doreset: () => { window.RDemo.reset(); closeModal(); UI.menu = null; refresh(); },
   logout: async () => { await api('POST', '/logout').catch(() => {}); S = null; renderLogin(); },
   pw: () => { UI.menu = null; render(); modal('Change password', `<div class="form"><label class="f full">Current password<input class="inp" type="password" id="pwC"></label><label class="f full">New password<input class="inp" type="password" id="pwN"></label></div>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savepw">Save</button>`); },
+  savepw2: () => { if (v('pwN').length < 8) return toast('Use at least 8 characters', '', 1); if (v('pwN') !== v('pwN2')) return toast('The two new passwords do not match', '', 1);
+    run(async () => { await api('PUT', '/me/password', { current: v('pwC'), password: v('pwN') }); S.me.mustChange = false; delete $('#modal').dataset.lock; closeModal(); }, 'Password saved — you are all set'); },
+  pweye: el => { const i = el.parentElement.querySelector('input'); i.type = i.type === 'password' ? 'text' : 'password'; i.focus(); },
+  sharelogin: el => shareModal(el.dataset.id),
+  shresend: el => { const u = S.users.find(x => x.id === el.dataset.id), pw = genPw(); run(async () => { await api('PUT', '/users/' + u.id, { password: pw }); credModal(u, pw); }); },
+  shblock: el => { const u = S.users.find(x => x.id === el.dataset.id), on = !u.disabled; run(async () => { const r = await api('PUT', '/users/' + u.id, { disabled: on }); Object.assign(u, r); shareModal(u.businessId); }, on ? u.name + ' can no longer sign in' : u.name + ' can sign in again'); },
+  shnew: el => { closeModal(); A.clientlogin ? A.clientlogin(el) : userModal('', el.dataset.id, 'owner'); },
   savepw: () => run(async () => { await api('PUT', '/me/password', { current: v('pwC'), password: v('pwN') }); closeModal(); }, 'Password changed'),
   homef: el => { UI.home.f = el.dataset.v; render(); },
   addbiz: () => modal('Add business', `<div class="form"><label class="f full">Business name<input class="inp" id="nbN" placeholder="e.g. kittu"></label><label class="f">Industry<input class="inp" id="nbI" placeholder="Bags, real estate, clinic…"></label><label class="f">Status<select class="sel" id="nbS"><option value="active">Active</option><option value="onboarding">Onboarding</option><option value="paused">Paused</option></select></label><label class="f">WhatsApp number<input class="inp" id="nbP" placeholder="+91…"></label><label class="f">Colour<input class="inp" type="color" id="nbC" value="#dc2626" style="padding:2px"></label></div>
@@ -1181,7 +1286,7 @@ const A = {
   saveeditsheet: el => run(async () => { putSheet(await api('PUT', '/sheets/' + el.dataset.id, { name: v('esN'), category: v('esC') })); closeModal(); render(); }, 'Sheet saved'),
   delsheet: el => { const s = SH(el.dataset.id); confirmBox('Delete sheet?', `“${s.name}” and its ${S.rows.filter(r => r.sheetId === s.id).length} records will be deleted for everyone.`, 'dodelsheet', { id: s.id }); },
   dodelsheet: el => run(async () => { const s = SH(el.dataset.id); await api('DELETE', '/sheets/' + s.id); S.sheets = S.sheets.filter(x => x.id !== s.id); S.rows = S.rows.filter(r => r.sheetId !== s.id); closeModal(); go(`/b/${s.businessId}/sheets/master`); }, 'Sheet deleted'),
-  addcol: el => modal('Add column', `<div class="form"><label class="f">Column name<input class="inp" id="acN" placeholder="e.g. Budget"></label><label class="f">Type<select class="sel" id="acT"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown</option><option value="check">Checkbox</option></select></label><label class="f full">Dropdown options (comma separated)<input class="inp" id="acO"></label></div>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="saveaddcol" data-id="${el.dataset.id}">Add column</button>`),
+  addcol: el => modal('Add column', `<div class="form"><label class="f">Column name<input class="inp" id="acN" placeholder="e.g. Budget"></label><label class="f">Type<select class="sel" id="acT"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown (your options)</option><option value="multi">Multi-select (pick many)</option><option value="yesno">Yes / No</option><option value="check">Checkbox</option></select></label><label class="f full">Dropdown options (comma separated)<input class="inp" id="acO"></label></div>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="saveaddcol" data-id="${el.dataset.id}">Add column</button>`),
   saveaddcol: el => run(async () => { const s = SH(el.dataset.id); if (!v('acN').trim()) throw new Error('Column name is required'); putSheet(await api('PUT', '/sheets/' + s.id, { columns: [...s.columns, { name: v('acN'), type: v('acT'), options: v('acO').split(',').map(x => x.trim()).filter(Boolean) }] })); closeModal(); render(); }, 'Column added'),
   cols: el => colsModal(el.dataset.id),
   savecols: el => run(async () => {
@@ -1214,9 +1319,19 @@ const A = {
     let patch = null, action = 'update';
     if (w === 'assign') { const o = v('bkOw'); if (!o) return toast('Choose who to assign to', '', 1); patch = { owner: o === '-' ? '' : o }; action = 'assign'; }
     if (w === 'status') { if (!v('bkSt')) return toast('Choose a status', '', 1); patch = { status: v('bkSt') }; }
+    if (w === 'fu') { const t = pDT(v('bkFu')); if (!t) return toast('Pick a date and time', '', 1); patch = { followUp: t }; }
     if (w === 'move') { if (!v('bkSh')) return toast('Choose a sheet', '', 1); patch = { sheetId: v('bkSh') }; }
     run(async () => { const r = await api('POST', '/rows/batch', { ids, action, patch }); r.rows.forEach(putRow); UI.sel.clear(); softRender(); }, `Updated ${ids.length} records`);
   },
+  bulkfu: el => { const ids = UI.sel.size ? [...UI.sel] : rngRowIds(); if (!ids.length) return toast('Tick rows first'); closePop(); const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(10, 0, 0, 0); const fu = el.dataset.v === '1' ? t.getTime() : el.dataset.v === '0' ? null : +el.dataset.v;
+    run(async () => { const r = await api('POST', '/rows/batch', { ids, action: 'update', patch: { followUp: fu } }); r.rows.forEach(putRow); softRender(); }, fu ? `${ids.length} added to follow-ups · ${fT(fu)}` : 'Follow-up removed'); },
+  ctxfu: () => { const ids = UI.sel.size ? [...UI.sel] : rngRowIds(); const n = ids.length, now = new Date(), at = (d, h) => { const x = new Date(); x.setDate(x.getDate() + d); x.setHours(h, 0, 0, 0); return x.getTime(); };
+    popMenu(UI.popAnchor || $('.gs'), `<div class="mh small muted">Follow-up for ${n} record${n > 1 ? 's' : ''}</div>` + pi('bulkfu', 'In 1 hour', { v: Date.now() + HR }) + pi('bulkfu', 'Today 6 pm', { v: at(0, 18) }) + pi('bulkfu', 'Tomorrow 10 am', { v: 1 }) + pi('bulkfu', 'In 3 days', { v: at(3, 10) }) + pi('bulkfu', 'Next week', { v: at(7, 10) }) + pi('ctxfupick', 'Pick date & time…') + '<hr>' + pi('bulkfu', 'Remove follow-up', { v: 0 })); },
+  ctxfupick: () => { closePop(); modal('Set follow-up', `<label class="f">Date & time<input class="inp" type="datetime-local" id="cfu"></label>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="docfu">Save</button>`); },
+  docfu: () => { const t = pDT(v('cfu')); if (!t) return toast('Pick a date and time', '', 1); closeModal(); A.bulkfu({ dataset: { v: t } }); },
+  ctxtick: () => { closePop(); rngRowIds().forEach(id => UI.sel.add(id)); softRender(); },
+  ctxmove: el => { const ids = UI.sel.size ? [...UI.sel] : rngRowIds(), r0 = S.rows.find(r => r.id === ids[0]); if (!r0) return; popMenu(UI.popAnchor || el, `<div class="mh small muted">Move ${ids.length} to sheet…</div>` + sheetsOf(r0.businessId).map(x => pi('domove', esc(x.name), { id: x.id })).join('')); },
+  domove: el => { const ids = UI.sel.size ? [...UI.sel] : rngRowIds(); closePop(); run(async () => { const r = await api('POST', '/rows/batch', { ids, action: 'update', patch: { sheetId: el.dataset.id } }); r.rows.forEach(putRow); softRender(); }, `Moved to ${SH(el.dataset.id).name}`); },
   dobulkdel: () => run(async () => { const ids = [...UI.sel]; await api('POST', '/rows/batch', { ids, action: 'delete' }); S.rows = S.rows.filter(r => !UI.sel.has(r.id)); UI.sel.clear(); closeModal(); softRender(); }, 'Deleted'),
   export: el => { const sc = UI.scopes[el.dataset.g]; download(`${sc.bid ? ((B(sc.bid) || {}).name || 'crm') : 'all-businesses'}-${sc.sid === 'master' ? 'master' : ((SH(sc.sid) || {}).name || 'sheet')}-${ymd(Date.now())}.csv`.replace(/[^\w.-]+/g, '-'), rowsCsv(gfilter(sc))); },
   open: el => { UI.menu = null; detail(el.dataset.id); },
@@ -1324,6 +1439,96 @@ const A = {
   catdel: el => { closePop(); catMove(el.dataset.id, el.dataset.v, el.dataset.v === 'General' ? 'Other' : 'General'); },
   docatto: el => { closePop(); catMove(el.dataset.id, el.dataset.v, el.dataset.to); },
   docat: el => { const to = v('catN').trim(); if (!to) return toast('Type a name', '', 1); closeModal(); catMove(el.dataset.id, UI.catFrom, to); },
+  fuw: el => { gs(el.dataset.g).fw = el.dataset.v; UI.rng = null; softRender(); },
+  savenewopt: () => { const n = v('noN').trim(); if (!n) return toast('Type the option', '', 1); const N = UI.newOpt, r = S.rows.find(x => x.id === N.rid), sh = SH(r.sheetId), cid = N.cid;
+    run(async () => { putSheet(await api('PUT', '/sheets/' + sh.id, { columns: sh.columns.map(c => c.id === cid ? { ...c, options: [...new Set([...(c.options || []), n])] } : c) })); putRow(await api('PUT', '/rows/' + r.id, { data: { [cid]: n } })); closeModal(); softRender(); }, 'Option added'); },
+  settype: el => { closePop(); const sh = SH(el.dataset.id), k = el.dataset.v, t = el.dataset.t;
+    const vals = [...new Set(S.rows.filter(r => r.sheetId === sh.id).map(r => k.startsWith('d:') ? (r.data || {})[k.slice(2)] : r[k]).map(x => String(x ?? '').trim()).filter(Boolean))];
+    UI.st = { id: sh.id, k, t };
+    if (t === 'select' || t === 'multi') return modal('Make “' + (UI.cols[k] || {}).l + '” a dropdown', `<label class="f">Options (comma separated)<input class="inp" id="stO" value="${esc(vals.slice(0, 30).join(', '))}" placeholder="e.g. Called, Visited, Booked"></label><p class="hint">Filled with the values already in this column. Existing values are kept.</p>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="dosettype">Make dropdown</button>`);
+    A.dosettype();
+  },
+  dosettype: () => run(async () => {
+    const { id, k, t } = UI.st, sh = SH(id), opts = (t === 'select' || t === 'multi') && $('#stO') ? v('stO').split(',').map(x => x.trim()).filter(Boolean) : [];
+    if (k.startsWith('d:')) { const cid = k.slice(2); putSheet(await api('PUT', '/sheets/' + id, { columns: sh.columns.map(c => c.id === cid ? { ...c, type: t, options: opts } : c) }));
+      if (t === 'yesno') { const ch = S.rows.filter(r => r.sheetId === id && (r.data || {})[cid] != null && (r.data || {})[cid] !== '').map(r => { const x = String(r.data[cid]).trim(); const y = /^(y|yes|true|1|ha|haan)$/i.test(x) ? 'Yes' : /^(n|no|false|0)$/i.test(x) ? 'No' : x; return y !== r.data[cid] ? { id: r.id, patch: { data: { [cid]: y } } } : null; }).filter(Boolean); if (ch.length) (await api('POST', '/rows/cells', { changes: ch })).rows.forEach(putRow); } }
+    else {
+      const label = (UI.cols[k] || {}).l || k; let ns = await api('PUT', '/sheets/' + id, { columns: [...sh.columns, { name: label, type: t, options: opts }] }); const nc = ns.columns[ns.columns.length - 1];
+      const rows = S.rows.filter(r => r.sheetId === id && r[k] != null && String(r[k]).trim() !== '');
+      const yn = x => /^(y|yes|true|1|ha|haan)$/i.test(String(x).trim()) ? 'Yes' : /^(n|no|false|0)$/i.test(String(x).trim()) ? 'No' : String(x);
+      if (rows.length) { const r = await api('POST', '/rows/cells', { changes: rows.map(r => ({ id: r.id, patch: { data: { [nc.id]: t === 'yesno' ? yn(r[k]) : t === 'check' ? !!r[k] : r[k] } } })) }); r.rows.forEach(putRow); }
+      const keys = UI.dcols.map(c => c.k), at = keys.indexOf(k); keys.splice(at, 1, 'd:' + nc.id);
+      ns = await api('PUT', '/sheets/' + id, { order: keys.concat((ns.order || []).filter(x => !keys.includes(x) && x !== k)), hidden: [...new Set([...(ns.hidden || []), k])] }); putSheet(ns);
+    }
+    closeModal(); softRender();
+  }, 'Column type changed'),
+  insmenu: el => {
+    const sc = UI.scopes[UI.curScope]; if (!sc) return; const ms = sc.sid === 'master';
+    const a = UI.anchor, ar = a && S.rows.find(r => r.id === UI.vrows[a.ri]);
+    const sh = ms ? (ar ? SH(ar.sheetId) : sheetsOf(sc.bid)[0]) : SH(sc.sid); if (!sh) return toast('Add a sheet first');
+    const m = canManage(sh.businessId), col = a && UI.dcols[a.ci], k = ms ? '' : col && col.k; UI.insSheet = sh.id;
+    const fixed = ['name', 'status', 'priority', 'owner', 'source', 'added', 'followUp', 'closed', 'color', 'act'];
+    let h = (ms ? `<div class="mh small muted">Adds to sheet: <b>${esc(sh.name)}</b></div>` : '') + `<div class="mh small muted">${a ? 'Selected: ' + esc(col ? col.letter + (a.ri + 1) + ' · ' + col.l : '') : 'Click a cell first to insert next to it'}</div>`;
+    if (a && m) { const n = UI.rng ? (UI.rng.r2 - UI.rng.r1 + 1) * (UI.rng.c2 - UI.rng.c1 + 1) : 1, any = rangeCells().some(({ r, c }) => cvOf(r, c));
+      h += `<div class="mh small muted">In ${n === 1 ? 'this cell only' : 'these ' + n + ' cells only'}</div>` + pi('cvmake', '▾ Dropdown here…', { t: 'select' }) + pi('cvmake', '✓ Yes / No here', { t: 'yesno' }) + pi('cvmake', '☰ Multi-select here…', { t: 'multi' }) + (any ? pi('cvedit', '✎ Edit / rename options…') + pi('cvclear', 'Remove dropdown from cell', {}, 'danger') : '') + '<hr>'; }
+    h += pi('insrow', 'Row above', { d: 0 }) + pi('insrow', 'Row below', { d: 1 });
+    if (m) {
+      h += '<hr>' + (k ? pi('quickcol', 'Column left', { id: sh.id, at: k, side: 0 }) + pi('quickcol', 'Column right', { id: sh.id, at: k, side: 1 }) : pi('quickcol', 'New column', { id: sh.id }));
+      h += '<hr><div class="mh small muted">+ New column with…</div>' + [['select', 'Dropdown (your options)'], ['multi', 'Multi-select (pick many)'], ['yesno', 'Yes / No'], ['check', 'Checkbox'], ['date', 'Date'], ['number', 'Number']].map(([t, l]) => pi('insnewcol', '+ ' + l, { id: sh.id, at: k || '', t })).join('');
+      if (ms) h += pi('golsheet', 'Open “' + esc(sh.name) + '” to change a column…', { id: sh.id });
+      if (k && !fixed.includes(k)) h += `<hr><div class="mh small muted">Make column “${esc(col.l)}”…</div>` + [['select', 'Dropdown…'], ['multi', 'Multi-select…'], ['yesno', 'Yes / No'], ['check', 'Checkbox'], ['date', 'Date'], ['number', 'Number'], ['text', 'Text']].map(([t, l]) => pi('settype', l, { id: sh.id, v: k, t })).join('');
+      if (k && k.startsWith('d:') && (colDef(S.rows.find(r => r.id === UI.vrows[a.ri]) || {}, col) || {}).type === 'select') h += pi('cols', 'Edit dropdown options…', { id: sh.id });
+    }
+    popMenu(el, h);
+  },
+  insnewcol: el => { A.quickcol({ dataset: { id: el.dataset.id, at: el.dataset.at || '', side: 1 } }); if (!el.dataset.at) UI.qcAt = null; setTimeout(() => { const t = $('#qcT'); if (t) t.value = el.dataset.t; const n = $('#qcN'); if (n) n.focus(); }, 0); },
+  golsheet: el => { closePop(); go(`/b/${SH(el.dataset.id).businessId}/sheets/${el.dataset.id}`); },
+  insrow: el => { closePop(); const sc = UI.scopes[UI.curScope], g = gs(UI.curScope), d = +el.dataset.d; if (!sc) return;
+    if (sc.sid === 'master') return run(async () => { const r = await api('POST', '/rows', { sheetId: UI.insSheet, source: 'Manual' }); putRow(r); g.sort = 'added'; g.dir = -1; g.sg = ''; softRender(); const ni = UI.vrows.indexOf(r.id); if (ni >= 0) selRange(ni, 0, ni, 0); }, 'Row added to ' + SH(UI.insSheet).name);
+    run(async () => {
+      if (g.sort !== 'pos') { g.sort = 'pos'; g.dir = 1; softRender(); }
+      const ri = UI.anchor ? UI.anchor.ri : (d ? UI.vrows.length - 1 : 0), ids = UI.vrows, P = i => (S.rows.find(x => x.id === ids[i]) || {}).pos;
+      const lo = d ? P(ri) : (ri > 0 ? P(ri - 1) : null), hi = d ? (ri + 1 < ids.length ? P(ri + 1) : null) : P(ri);
+      const pos = lo == null && hi == null ? 1 : lo == null ? hi - 1 : hi == null ? lo + 1 : (lo + hi) / 2;
+      let r = await api('POST', '/rows', { sheetId: sc.sid, source: 'Manual' }); r = (await api('POST', '/rows/cells', { changes: [{ id: r.id, patch: { pos } }] })).rows[0] || r; putRow(r);
+      softRender(); const ni = UI.vrows.indexOf(r.id); if (ni >= 0) selRange(ni, 0, ni, 0);
+    }, 'Row inserted');
+  },
+  mpsave: () => { const M = UI.mp; if (!M) return; const r = S.rows.find(x => x.id === M.rid), sh = SH(r.sheetId); const vals = $$('.pop .mpc').filter(x => x.checked).map(x => x.value), nw = ($('#mpNew') || {}).value ? $('#mpNew').value.split(',').map(x => x.trim()).filter(Boolean) : []; closePop();
+    if (M.cv) return run(async () => { if (nw.length) { const x = sh.cellv[M.cv]; putSheet(await api('PUT', '/sheets/' + sh.id, { cellv: { [M.cv]: { ...x, options: [...new Set([...x.options, ...nw])] } } })); } await saveCell(r, UI.cols[M.k], [...new Set([...vals, ...nw])].join(', ')); redrawRow(r.id); paint(); });
+    run(async () => { if (nw.length) putSheet(await api('PUT', '/sheets/' + sh.id, { columns: sh.columns.map(c => c.id === M.cid ? { ...c, options: [...new Set([...(c.options || []), ...nw])] } : c) })); const all = [...new Set([...vals, ...nw])].join(', '); putRow(await api('PUT', '/rows/' + r.id, { data: { [M.cid]: all } })); redrawRow(r.id); paint(); }); },
+  optadd: () => { const i = $('#optIn'); if (!i) return; i.value.split(',').map(x => x.trim()).filter(Boolean).forEach(x => { if (!UI.opts.includes(x)) UI.opts.push(x); }); i.value = ''; optDraw(); i.focus(); },
+  optdel: el => { UI.opts.splice(+el.dataset.v, 1); optDraw(); },
+  savecvopt: () => { const n = v('noN').trim(); if (!n) return toast('Type the option', '', 1); const N = UI.cvNew, r = S.rows.find(x => x.id === N.rid), sh = SH(r.sheetId), x = sh.cellv[N.k];
+    run(async () => { putSheet(await api('PUT', '/sheets/' + sh.id, { cellv: { [N.k]: { ...x, options: [...new Set([...x.options, n])] } } })); closeModal(); await saveCell(r, UI.cols[N.ck], n); redrawRow(r.id); paint(); }); },
+  cvmake: el => { closePop(); const t = el.dataset.t, cells = rangeCells().filter(({ c }) => !['select', 'check', 'ro'].includes(cellType(c)) && c.k !== 'name'); if (!cells.length) return toast('Pick a normal cell (text, email, phone, notes…)', '', 1);
+    UI.cvT = { t, cells: cells.map(({ r, c }) => ({ rid: r.id, k: c.k })) };
+    if (t === 'yesno') return A.docv();
+    UI.opts = []; const cur = cells.map(({ r, c }) => String(rawVal(r, c) ?? '').trim()).filter(Boolean); if (cells.length > 1) cur.forEach(x => { if (!UI.opts.includes(x)) UI.opts.push(x); });
+    modal((t === 'multi' ? 'Multi-select' : 'Dropdown') + ' in ' + (cells.length === 1 ? 'this cell only' : cells.length + ' selected cells'), `<div class="f full"><span>Options</span><div id="optList" class="optlist"></div><div class="row" style="gap:6px"><input class="inp" id="optIn" placeholder="Type an option and press Enter" style="flex:1"><button class="btn" data-act="optadd">+ Add</button></div><input type="hidden" id="qcO"></div><p class="hint">Only ${cells.length === 1 ? 'this cell gets' : 'these cells get'} the dropdown — no new row or column.</p>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="docv">Save</button>`);
+    setTimeout(() => { optDraw(); const i = $('#optIn'); if (i) { i.focus(); i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); A.optadd(); } }); } }, 0); },
+  docv: () => { if ($('#optIn') && $('#optIn').value.trim()) A.optadd(); const T = UI.cvT; if (T.t !== 'yesno' && !UI.opts.length) return toast('Add at least one option', '', 1);
+    const by = {}; T.cells.forEach(({ rid, k }) => { const r = S.rows.find(x => x.id === rid), key = cvKey(r, UI.cols[k]); if (key) (by[r.sheetId] = by[r.sheetId] || {})[key] = { type: T.t, options: T.t === 'yesno' ? [] : UI.opts.slice() }; });
+    run(async () => { for (const sid in by) putSheet(await api('PUT', '/sheets/' + sid, { cellv: by[sid] })); closeModal(); softRender(); }, 'Dropdown added to ' + T.cells.length + ' cell' + (T.cells.length > 1 ? 's' : '')); },
+  cvclear: () => { closePop(); const by = {}; rangeCells().forEach(({ r, c }) => { const k = cvKey(r, c); if (k && cvOf(r, c)) (by[r.sheetId] = by[r.sheetId] || {})[k] = null; }); if (!Object.keys(by).length) return toast('No cell dropdowns here');
+    run(async () => { for (const sid in by) putSheet(await api('PUT', '/sheets/' + sid, { cellv: by[sid] })); softRender(); }, 'Cell dropdown removed'); },
+  cveadd: () => { cveKeep(); const n = v('cveNew').trim(); if (n) UI.cvE.list.push({ o: null, n }); $('#cveNew').value = ''; cveDraw(); $('#cveNew').focus(); },
+  cvedel: el => { cveKeep(); UI.cvE.list.splice(+el.dataset.v, 1); cveDraw(); },
+  cvemv: el => { cveKeep(); const L = UI.cvE.list, i = +el.dataset.v, j = i + +el.dataset.d; [L[i], L[j]] = [L[j], L[i]]; cveDraw(); },
+  cvesave: () => { cveKeep(); if ($('#cveNew').value.trim()) A.cveadd(); const E = UI.cvE, r = S.rows.find(x => x.id === E.rid), sh = SH(r.sheetId), x = sh.cellv[E.k], c = UI.cols[E.ck];
+    const list = E.list.filter(y => y.n), opts = [...new Set(list.map(y => y.n))];
+    run(async () => { putSheet(await api('PUT', '/sheets/' + sh.id, { cellv: { [E.k]: { ...x, options: opts } } }));
+      const cur = String(rawVal(r, c) ?? ''), ren = {}; E.list.forEach(y => { if (y.o && y.o !== y.n) ren[y.o] = y.n; });
+      const nv = x.type === 'multi' ? cur.split(',').map(z => z.trim()).filter(Boolean).map(z => ren[z] ?? z).filter(z => opts.includes(z)).join(', ') : (ren[cur] ?? cur);
+      if (nv !== cur) await saveCell(r, c, nv); closeModal(); redrawRow(r.id); paint(); }, 'Options saved'); },
+  cvedit: () => { closePop(); const a = curTd(); if (!a) return; const r = S.rows.find(x => x.id === a.parentElement.dataset.rid); cvEdit(r, UI.cols[a.dataset.k]); },
+  editcolors: el => colorModal(el.dataset.id),
+  colreset: el => { $('#ch-' + el.dataset.v).value = HEXD[el.dataset.v]; },
+  savecolors: el => { const labels = {}, hex = {}; COLORS.forEach(c => { labels[c] = v('cl-' + c).trim() || LABELS[c]; const h = v('ch-' + c); if (h && h.toLowerCase() !== HEXD[c]) hex[c] = h; });
+    run(async () => { putBiz(await api('PUT', '/businesses/' + el.dataset.id, { colorLabels: labels, colorHex: hex })); closeModal(); render(); }, 'Colour labels saved'); },
+  waselall: el => { const sc = UI.scopes[el.dataset.g]; gfilter(sc).forEach(r => UI.sel.add(r.id)); softRender(); },
+  mhide: el => { closePop(); const g = gs(el.dataset.g); g.hc = [...new Set([...(g.hc || []), el.dataset.v])]; UI.rng = null; softRender(); toast('Column hidden', 'Right-click any column letter → Show hidden columns'); },
+  mshow: el => { closePop(); gs(el.dataset.g).hc = []; softRender(); },
   webon: el => run(async () => { putBiz(await api('PUT', `/businesses/${el.dataset.id}/web`, { enabled: el.checked })); render(); }, 'Saved'),
   newkey: el => confirmBox('Create a new website key?', 'The old key stops working. Update the code on the website / the WordPress plugin with the new key.', 'donewkey', { id: el.dataset.id }),
   donewkey: el => run(async () => { putBiz(await api('PUT', `/businesses/${el.dataset.id}/web`, { newKey: true })); closeModal(); render(); }, 'New key created'),
@@ -1362,17 +1567,18 @@ const A = {
     if (single && m) {
       const ci = UI.dcols.findIndex(x => x.k === k);
       h += '<hr>' + pi('rencol', 'Rename column', { id: sc.sid, v: k }) + pi('quickcol', 'Insert column left', { id: sc.sid, at: k, side: 0 }) + pi('quickcol', 'Insert column right', { id: sc.sid, at: k, side: 1 }) + (ci > 0 ? pi('colmove', 'Move left  <span class="kb">Alt+←</span>', { v: k, d: -1 }) : '') + (ci < UI.dcols.length - 1 ? pi('colmove', 'Move right  <span class="kb">Alt+→</span>', { v: k, d: 1 }) : '') + pi('colswap', 'Swap with…', { v: k });
-      if (c.def) h += pi('cols', 'Change type / options…', { id: sc.sid });
+      if (!['name', 'status', 'priority', 'owner', 'source', 'added', 'followUp', 'closed', 'color', 'act'].includes(k)) h += '<hr><div class="mh small muted">Make this column</div>' + pi('settype', 'Dropdown…', { id: sc.sid, v: k, t: 'select' }) + pi('settype', 'Multi-select…', { id: sc.sid, v: k, t: 'multi' }) + pi('settype', 'Yes / No', { id: sc.sid, v: k, t: 'yesno' }) + pi('settype', 'Checkbox', { id: sc.sid, v: k, t: 'check' }) + pi('settype', 'Number', { id: sc.sid, v: k, t: 'number' }) + pi('settype', 'Text', { id: sc.sid, v: k, t: 'text' });
       h += '<hr>' + ((c.def || ['name', 'phone', 'email', 'notes', 'price', 'followUp', 'closed'].includes(k)) ? pi('colclear', 'Clear column (keep it empty)', { id: sc.sid, v: k }) : '') + (k !== 'name' && (c.def || c.built) ? pi('coldel', 'Delete column', { id: sc.sid, v: k }, 'danger') : '') + pi('bin', 'Deleted columns…', { id: sc.sid });
     }
+    if (!single) { const shs = scopeSheets(sc); h += '<hr>' + pi('mhide', 'Hide column (this view only)', { g, v: k }) + ((gs(g).hc || []).length ? pi('mshow', 'Show hidden columns (' + gs(g).hc.length + ')', { g }) : '') + '<hr><div class="mh small muted">To delete or empty a column, open its sheet:</div>' + shs.slice(0, 8).map(x => pi('golsheet', 'Open “' + esc(x.name) + '”', { id: x.id })).join(''); }
     popMenu(el, h); },
   sortc: el => { const g = gs(el.dataset.g); g.sort = el.dataset.v; g.dir = +el.dataset.d; closePop(); softRender(); },
   rencol: el => { closePop(); const th = document.querySelector(`th[data-ren="${CSS.escape(el.dataset.v)}"]`); if (th) th.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); },
   hidecol: el => run(async () => { const sh = SH(el.dataset.id); closePop(); putSheet(await api('PUT', '/sheets/' + sh.id, { hidden: [...new Set([...(sh.hidden || []), el.dataset.v])] })); softRender(); }, 'Column removed — built-in columns can be brought back from Columns & headers'),
   delcol2: el => { closePop(); const sh = SH(el.dataset.id), c = sh.columns.find(x => 'd:' + x.id === el.dataset.v); confirmBox('Delete column?', `“${c.name}” and its values will be removed from every row of ${sh.name}.`, 'dodelcol', { id: sh.id, v: c.id }); },
   dodelcol: el => run(async () => { const sh = SH(el.dataset.id); putSheet(await api('PUT', '/sheets/' + sh.id, { columns: sh.columns.filter(c => c.id !== el.dataset.v) })); closeModal(); softRender(); }, 'Column deleted'),
-  quickcol: el => { closePop(); UI.qcAt = el.dataset.at ? { k: el.dataset.at, side: +el.dataset.side } : null; modal('New column', `<div class="form"><label class="f">Column name<input class="inp" id="qcN" placeholder="e.g. Budget"></label><label class="f">Type<select class="sel" id="qcT"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown</option><option value="check">Checkbox</option></select></label><label class="f full">Dropdown options (comma separated)<input class="inp" id="qcO"></label></div>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savequickcol" data-id="${el.dataset.id}">Add column</button>`); },
-  savequickcol: el => run(async () => { const sh = SH(el.dataset.id); if (!v('qcN').trim()) throw new Error('Column name is required'); let ns = await api('PUT', '/sheets/' + sh.id, { columns: [...sh.columns, { name: v('qcN').trim(), type: v('qcT'), options: v('qcO').split(',').map(x => x.trim()).filter(Boolean) }] });
+  quickcol: el => { closePop(); UI.opts = []; setTimeout(() => { optDraw(); const i = $('#optIn'); if (i) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); A.optadd(); } }); }, 0); UI.qcAt = el.dataset.at ? { k: el.dataset.at, side: +el.dataset.side } : null; modal('New column', `<div class="form"><label class="f">Column name<input class="inp" id="qcN" placeholder="e.g. Budget"></label><label class="f">Type<select class="sel" id="qcT"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown (your options)</option><option value="multi">Multi-select (pick many)</option><option value="yesno">Yes / No</option><option value="check">Checkbox</option></select></label><div class="f full"><span>Options <span class="muted small">(for Dropdown / Multi-select)</span></span><div id="optList" class="optlist"></div><div class="row" style="gap:6px"><input class="inp" id="optIn" placeholder="Type an option and press Enter (or paste: A, B, C)" style="flex:1"><button class="btn" data-act="optadd">+ Add</button></div><input type="hidden" id="qcO"></div></div>`, `<button class="btn" data-act="close">Cancel</button><button class="btn pri" data-act="savequickcol" data-id="${el.dataset.id}">Add column</button>`); },
+  savequickcol: el => run(async () => { if ($('#optIn') && $('#optIn').value.trim()) A.optadd(); const sh = SH(el.dataset.id); if (!v('qcN').trim()) throw new Error('Column name is required'); let ns = await api('PUT', '/sheets/' + sh.id, { columns: [...sh.columns, { name: v('qcN').trim(), type: v('qcT'), options: v('qcO').split(',').map(x => x.trim()).filter(Boolean) }] });
     if (UI.qcAt) { const nc = ns.columns[ns.columns.length - 1], keys = UI.dcols.map(c => c.k), at = keys.indexOf(UI.qcAt.k); keys.splice(at < 0 ? keys.length : at + UI.qcAt.side, 0, 'd:' + nc.id); ns = await api('PUT', '/sheets/' + sh.id, { order: keys.concat((ns.order || []).filter(x => !keys.includes(x))) }); }
     putSheet(ns); closeModal(); softRender(); }, 'Column added'),
   access: el => { closePop(); accessModal(el.dataset.id); },
@@ -1402,18 +1608,18 @@ document.addEventListener('click', e => {
   const goEl = e.target.closest('[data-go]');
   const el = e.target.closest('[data-act]');
   if (el && el.tagName === 'SELECT') return;
-  if (UI.popEl && !e.target.closest('.pop') && !(el && ['colmenu', 'tabmenu', 'allsheets', 'catmenu', 'colswap', 'catmove'].includes(el.dataset.act))) closePop();
+  if (UI.popEl && !e.target.closest('.pop') && !(el && ['colmenu', 'tabmenu', 'allsheets', 'insmenu', 'ctxfu', 'ctxmove', 'catmenu', 'colswap', 'catmove'].includes(el.dataset.act))) closePop();
   const ctd = e.target.closest('.gs td.c');
   if (ctd && !e.target.closest('button,input:not(.ed),a,select,textarea')) {
     if (ctd.classList.contains('editing')) return;
-    if (e.target.closest('.chip2') && !ctd.dataset.ro && !e.shiftKey) startEdit(ctd);
+    if ((e.target.closest('.chip2') || ctd.classList.contains('t-multi') || ctd.classList.contains('cv')) && !ctd.dataset.ro && !e.shiftKey) startEdit(ctd);
     return;
   }
   if (el && el.tagName === 'INPUT' && !['selrow', 'selall', 'wasel', 'chk', 'webon', 'mergedup', 'waauto'].includes(el.dataset.act)) return;
   if (UI.menu && !e.target.closest('.menu') && !(el && el.dataset.act === 'menu')) { UI.menu = null; if (!el && !goEl) return render(); }
   if (e.target === $('#modal')) return closeModal();
   if (el && el.tagName === 'INPUT') { if (['selrow', 'selall', 'wasel', 'chk', 'webon'].includes(el.dataset.act)) A[el.dataset.act](el); return; }
-  if (el && el.closest('.pop')) { closePop(); }
+  if (el && el.closest('.pop') && el.dataset.act !== 'mpsave') { closePop(); }
   if (el && A[el.dataset.act]) { if (el.tagName === 'A' && el.dataset.act !== 'gsave') e.preventDefault(); if (el.classList.contains('tm')) { e.preventDefault(); e.stopPropagation(); } A[el.dataset.act](el); return; }
   if (goEl) { e.preventDefault(); if (!$('#modal').hidden) closeModal(); UI.menu = null; go(goEl.dataset.go); }
 });
@@ -1434,10 +1640,10 @@ document.addEventListener('change', e => {
   if (d.act === 'impmode') { impKeep(); return impModal(); }
   if (d.act === 'impinc') { impKeep(); UI.imp.books[+d.v].include = el.checked; return impModal(); }
   if (d.act === 'impname') { UI.imp.books[+d.v].name = el.value; return; }
-  if (d.act === 'impinto') { impKeep(); return impModal(); }
+  if (d.act === 'impinto') { impKeep(); UI.imp.found = ''; return impModal(); }
   if (el.id === 'impFile' && el.files[0]) {
     impKeep();
-    readFile(el.files[0]).then(books => { books.forEach(guess); UI.imp.books = books; if (!books.length) toast('No rows found in that file', '', 1); impModal(); }).catch(err => toast(err.message, '', 1));
+    readFile(el.files[0]).then(books => { UI.imp.books = books; UI.imp.file = el.files[0].name; if (!books.length) toast('No rows found in that file', '', 1); else impDetect(); impModal(); }).catch(err => toast(err.message, '', 1));
     return;
   }
   if (d.id && d.f) {
@@ -1495,7 +1701,7 @@ document.addEventListener('contextmenu', e => {
   const lth = e.target.closest('.gs tr.lt th.lc');
   if (lth) { e.preventDefault(); const ci = +lth.dataset.ci; if (!UI.rng || ci < UI.rng.c1 || ci > UI.rng.c2) selRange(0, ci, Math.max(0, UI.vrows.length - 1), ci); A.colmenu({ dataset: { g: UI.curScope, v: UI.dcols[ci].k }, getBoundingClientRect: () => lth.getBoundingClientRect() }); return; }
   const ctd = e.target.closest('.gs td.c');
-  if (ctd && !ctd.classList.contains('editing')) { e.preventDefault(); const p = cellPos(ctd); if (!UI.rng || p.ri < UI.rng.r1 || p.ri > UI.rng.r2 || p.ci < UI.rng.c1 || p.ci > UI.rng.c2) selCell(ctd, true); popMenu({ getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }) }, pi('ctxcopy', 'Copy  <span class="kb">Ctrl+C</span>') + pi('ctxpaste', 'Paste  <span class="kb">Ctrl+V</span>') + pi('ctxclear', 'Clear cells  <span class="kb">Delete</span>') + '<hr>' + pi('fmtb', 'Bold  <span class="kb">Ctrl+B</span>') + pi('ctxundo', 'Undo  <span class="kb">Ctrl+Z</span>') + pi('open', 'Open record', { id: ctd.parentElement.dataset.rid })); return; }
+  if (ctd && !ctd.classList.contains('editing')) { e.preventDefault(); const p = cellPos(ctd); if (!UI.rng || p.ri < UI.rng.r1 || p.ri > UI.rng.r2 || p.ci < UI.rng.c1 || p.ci > UI.rng.c2) selCell(ctd, true); UI.popAnchor = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }) }; popMenu({ getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }) }, pi('ctxcopy', 'Copy  <span class="kb">Ctrl+C</span>') + pi('ctxpaste', 'Paste  <span class="kb">Ctrl+V</span>') + pi('ctxclear', 'Clear cells  <span class="kb">Delete</span>') + '<hr>' + (canManage((S.rows.find(r => r.id === ctd.parentElement.dataset.rid) || {}).businessId) ? pi('cvmake', 'Dropdown in this cell…', { t: 'select' }) + pi('cvmake', 'Yes / No in this cell', { t: 'yesno' }) : '') + pi('ctxfu', 'Add to follow-up…') + pi('ctxmove', 'Move to sheet…') + pi('ctxtick', 'Tick these rows (bulk edit)') + '<hr>' + pi('fmtb', 'Bold  <span class="kb">Ctrl+B</span>') + pi('ctxundo', 'Undo  <span class="kb">Ctrl+Z</span>') + pi('open', 'Open record', { id: ctd.parentElement.dataset.rid })); return; }
   const th = e.target.closest('.gs th.hn'); if (!th) return; const b = th.querySelector('.hm'); if (!b) return; e.preventDefault(); A.colmenu(b);
 });
 document.addEventListener('submit', async e => {
@@ -1586,7 +1792,7 @@ document.addEventListener('mouseup', e => {
   if (d.type === 'fill') return fillDown(d.to);
   if (d.type === 'rh') { if (d.nh) { const id = d.tr.dataset.rid; api('POST', '/rows/cells', { changes: [{ id, patch: { h: d.nh } }] }).then(r => r.rows.forEach(putRow)).catch(err => toast(err.message, '', 1)); } return; }
   if (d.type === 'col') { if (d.moved && d.target != null) return moveColumn(d.ci, d.target); const last = UI.vrows.length - 1; if (last < 0) return; if (d.shift && UI.anchor) return selRange(0, UI.anchor.ci, last, d.ci); return selRange(0, d.ci, last, d.ci); }
-  if (d.type === 'row') { if (d.moved && d.target != null && d.target >= 0) return moveRow(d.ri, d.target); const lastc = UI.dcols.length - 1; if (d.shift && UI.anchor) return selRange(UI.anchor.ri, 0, d.ri, lastc); return selRange(d.ri, 0, d.ri, lastc); }
+  if (d.type === 'row') { if (d.moved && d.target != null && d.target >= 0) return moveRow(d.ri, d.target); const lastc = UI.dcols.length - 1; if (d.shift && UI.anchor) selRange(UI.anchor.ri, 0, d.ri, lastc); else selRange(d.ri, 0, d.ri, lastc); if (!(e.ctrlKey || e.metaKey)) UI.sel.clear(); rngRowIds().forEach(id => UI.sel.add(id)); const k = UI.curScope, R0 = UI.rng; softRender(); UI.rng = R0; paint(); return; }
 });
 document.addEventListener('dblclick', e => {
   if (e.target.classList && e.target.classList.contains('rzr')) { const id = e.target.closest('tr').dataset.rid; api('POST', '/rows/cells', { changes: [{ id, patch: { h: null } }] }).then(r => { r.rows.forEach(putRow); redrawRow(id); }).catch(() => {}); }
