@@ -54,7 +54,7 @@
     const canRow = (u, r) => canManage(u, r.businessId) || r.owner === u.id || sheetPerm(u, sheet(r.sheetId)) === 'edit';
     const canAssignTo = (bid, uidv) => !uidv || (() => { const t = userById(uidv); return !!t && (t.role === 'super' || !t.businessId || t.businessId === bid); })();
 
-    const pubUser = u => ({ id: u.id, name: u.name, username: u.username || '', email: u.email || '', role: u.role, businessId: u.businessId || '', createdAt: u.createdAt, lastLogin: u.lastLogin || null });
+    const pubUser = u => ({ id: u.id, name: u.name, username: u.username || '', email: u.email || '', role: u.role, businessId: u.businessId || '', createdAt: u.createdAt, lastLogin: u.lastLogin || null, mustChange: !!u.mustChange, disabled: !!u.disabled });
     const hint = s => s ? '••••' + String(s).slice(-4) : '';
     const pubBiz = b => {
       const o = clone(b);
@@ -226,6 +226,7 @@
       if (hash) need(String(b.password || '').length >= 6, 400, 'Password must be at least 6 characters');
       const x = { id: 'u' + uid(), name: String(b.name).trim(), username, email, phone: String(b.phone || ''), role, businessId, createdAt: now() };
       if (hash) x.password = await hash(b.password);
+      x.mustChange = true;
       db.users.push(x);
       if (role === 'staff' && businessId) { const bb = biz(businessId); bb.assign = bb.assign || { mode: 'round', pool: [], idx: 0 }; bb.assign.pool = [...new Set([...(bb.assign.pool || []), x.id])]; }
       return pubUser(x);
@@ -240,7 +241,8 @@
       if (b.role && t.id !== u.id && ROLES.includes(b.role)) { if (b.role === 'super') { superOnly(u); t.businessId = ''; } t.role = b.role; }
       if (isSuper(u) && b.businessId !== undefined && t.role !== 'super') { need(!b.businessId || biz(b.businessId), 400, 'Business not found'); t.businessId = b.businessId || ''; }
       if (t.role === 'owner') need(t.businessId, 400, 'A business admin needs a business');
-      if (b.password) { need(String(b.password).length >= 6, 400, 'Password must be at least 6 characters'); if (hash) t.password = await hash(b.password); }
+      if (b.password) { need(String(b.password).length >= 6, 400, 'Password must be at least 6 characters'); if (hash) t.password = await hash(b.password); t.mustChange = t.id !== u.id; }
+      if (b.disabled !== undefined) { need(t.id !== u.id, 400, 'You cannot block yourself'); t.disabled = !!b.disabled; }
       return pubUser(t);
     });
     on('DELETE', '/users/:id', (u, p) => {
@@ -268,7 +270,7 @@
     });
     on('PUT', '/businesses/:id', (u, p, b) => {
       const x = manage(u, p.id);
-      for (const k of ['name', 'industry', 'color', 'currency', 'meetEmails', 'colorLabels', 'assign', 'phone']) if (b[k] !== undefined) x[k] = b[k];
+      for (const k of ['name', 'industry', 'color', 'currency', 'meetEmails', 'colorLabels', 'colorHex', 'assign', 'phone']) if (b[k] !== undefined) x[k] = b[k];
       if (b.status !== undefined && isSuper(u)) x.status = b.status;
       if (b.slug !== undefined && isSuper(u) && String(b.slug).trim()) x.slug = uniqueSlug(b.slug, x.id);
       return pubBiz(x);
@@ -360,7 +362,7 @@
     on('DELETE', '/emails/:id', (u, p) => { const s = db.emails.find(x => x.id === p.id); need(s, 404, 'Not found'); manage(u, s.businessId); db.emails = db.emails.filter(x => x.id !== p.id); return { ok: true }; });
 
     // sheets
-    const cleanCols = cols => cols.map(c => ({ id: c.id || 'c' + uid(), name: String(c.name || '').trim() || 'Column', type: ['text', 'number', 'date', 'select', 'check'].includes(c.type) ? c.type : 'text', options: Array.isArray(c.options) ? c.options.map(String) : [] }));
+    const cleanCols = cols => cols.map(c => ({ id: c.id || 'c' + uid(), name: String(c.name || '').trim() || 'Column', type: ['text', 'number', 'date', 'select', 'multi', 'yesno', 'check'].includes(c.type) ? c.type : 'text', options: Array.isArray(c.options) ? c.options.map(String) : [] }));
     on('POST', '/sheets', (u, p, b) => {
       manage(u, b.businessId);
       const sh = { id: uid(), businessId: b.businessId, name: String(b.name || 'Untitled sheet').trim(), category: String(b.category || 'General').trim() || 'General', columns: cleanCols(b.columns || []), labels: {}, hidden: [], widths: {}, order: [], bin: [], access: { view: [], edit: [] }, source: b.source || 'manual', createdAt: now(), updated: now() };
@@ -374,6 +376,7 @@
       if (b.labels && typeof b.labels === 'object') { sh.labels = {}; for (const k of BUILTIN) if (b.labels[k] && String(b.labels[k]).trim()) sh.labels[k] = String(b.labels[k]).trim(); }
       if (Array.isArray(b.hidden)) sh.hidden = b.hidden.filter(k => BUILTIN.includes(k) && k !== 'name');
       if (Array.isArray(b.order)) sh.order = b.order.map(String).slice(0, 300);
+      if (b.cellv && typeof b.cellv === 'object') { sh.cellv = sh.cellv || {}; for (const k in b.cellv) { const x = b.cellv[k]; if (!x) { delete sh.cellv[k]; continue; } if (!['select', 'yesno', 'multi'].includes(x.type)) continue; sh.cellv[String(k).slice(0, 80)] = { type: x.type, options: Array.isArray(x.options) ? x.options.map(String).slice(0, 100) : [] }; } }
       if (b.widths && typeof b.widths === 'object') { sh.widths = sh.widths || {}; for (const k in b.widths) { const w = Math.round(+b.widths[k]); if (w >= 40 && w <= 900) sh.widths[k] = w; } }
       sh.updated = now(); return sh;
     });
@@ -445,14 +448,14 @@
     function waAuto(b, list) {
       let sh = db.sheets.find(s => s.businessId === b.id && s.source === 'whatsapp');
       if (!sh) { sh = { id: uid(), businessId: b.id, name: 'WhatsApp', category: 'WhatsApp', columns: [], labels: {}, hidden: [], widths: {}, order: [], bin: [], access: { view: [], edit: [] }, source: 'whatsapp', createdAt: now(), updated: now() }; db.sheets.push(sh); }
-      const byPhone = new Map(); db.rows.forEach(r => { if (r.businessId === b.id) { const d = digits(r.phone); if (d && !byPhone.has(d)) byPhone.set(d, r); } });
+      const byPhone = new Map(); db.rows.forEach(r => { if (r.sheetId === sh.id || (r.businessId === b.id && String(r.ref || '').startsWith('wa:'))) { const d = digits(r.phone); if (d && !byPhone.has(d)) byPhone.set(d, r); } });
       let added = 0, updated = 0;
       for (const c of list) {
         const d = digits(c.number); if (!d) continue;
         const ex = byPhone.get(d);
         const wa = { msg: c.lastMessage || '', at: c.lastAt || null };
-        if (ex) { if (!ex.wa || ex.wa.at !== wa.at || ex.wa.msg !== wa.msg) { ex.wa = wa; if (!ex.name && c.name) ex.name = c.name; ex.updated = now(); updated++; } continue; }
-        const r = makeRow(sh, { name: c.name || c.number, phone: c.number, source: 'WhatsApp', added: c.firstAt || c.lastAt || null, ref: 'wa:' + d }, WEB_SYS);
+        if (ex) { if (!ex.wa || ex.wa.at !== wa.at || ex.wa.msg !== wa.msg || (!ex.name && c.name)) { ex.wa = wa; if ((!ex.name || ex.name === ex.phone) && c.name) ex.name = c.name; ex.updated = now(); updated++; } continue; }
+        const r = makeRow(sh, { name: c.name || '', phone: c.number, source: 'WhatsApp', added: c.firstAt || c.lastAt || null, ref: 'wa:' + d }, WEB_SYS);
         r.wa = wa; db.rows.push(r); byPhone.set(d, r); added++;
       }
       sh.updated = now();
