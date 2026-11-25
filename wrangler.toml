@@ -1,5 +1,5 @@
 # Cloudflare Workers config for RAREVO CRM (works on the free plan)
-name = "rarevo-crm"
+name = "rarevocrm"
 main = "cloudflare/worker.mjs"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
